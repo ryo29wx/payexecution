@@ -22,7 +22,7 @@ const (
 	PRODUCTION_MODE            = false
 	TaskName                   = "worker.execute"
 	NotifyTaskName             = "worker.notification"
-	Queue                      = "notification"
+	Queue                      = "payment"
 	PUBLISHABLE_KEY_STAGING    = "pk_test_j5fvxJmoN3TlTaNTgcATv0W000HRwOI317"
 	PUBLISHABLE_KEY_PRODUCTION = "*******"
 	SECRET_KEY_STAGING         = "sk_test_v4QrE3LoY9Cu2ki3IwQylABI00Hbes7WQT"
