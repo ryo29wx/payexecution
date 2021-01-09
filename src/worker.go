@@ -27,8 +27,8 @@ const (
 	PUBLISHABLE_KEY_PRODUCTION = "*******"
 	SECRET_KEY_STAGING         = "sk_test_v4QrE3LoY9Cu2ki3IwQylABI00Hbes7WQT"
 	SECRET_KEY_PRODUCTION      = "*******"
-	UPDATE_RESTOCK_QUERY       = "UPDATE PRODUCT_INFO SET STOCK=%v WHERE PRODUCT_ID=%v"
-	GET_STOCK_QUERY            = "SELECT STOCK FROM PRODUCT_INFO WHERE PRODUCT_ID=%v"
+	UPDATE_RESTOCK_QUERY       = "UPDATE PRODUCT_INFO SET STOCK='%v' WHERE PRODUCT_ID='%v'"
+	GET_STOCK_QUERY            = "SELECT STOCK FROM PRODUCT_INFO WHERE PRODUCT_ID='%v'"
 	LAYOUT                     = "2006-01-02"
 )
 
@@ -91,7 +91,7 @@ func confirmPayment(cardid string, payid string) (status string) {
 	return status
 }
 
-func execute(transaction_id string, product_id string, customerid string, deal_stock int, total_amount int, image_url string, category int, product_name string, price int, user_id string, cardid string, address string, retry_cnt int, restock_flag bool, status string) {
+func execute(transaction_id string, product_id string, customerid string, deal_stock int, total_amount int, image_url string, category int, product_name string, price int, user_id string, cardid string, address string, retry_cnt int, restock_flag bool, status string) int {
 	sendReqLog(transaction_id, product_id, customerid, deal_stock, total_amount, user_id, cardid, address, retry_cnt, restock_flag, status)
 	HashSet(transaction_id, status)
 
@@ -99,6 +99,7 @@ func execute(transaction_id string, product_id string, customerid string, deal_s
 	db, err := connectDB()
 	if err != nil {
 		log.Printf("[WORKER] DB Connection ERROR!! in worker.go")
+		return 400
 	}
 	defer db.Close()
 
@@ -118,23 +119,27 @@ func execute(transaction_id string, product_id string, customerid string, deal_s
 		_, err = celery_client.Delay(TaskName, transaction_id, product_id, customerid, deal_stock, total_amount, image_url, category, product_name, price, user_id, cardid, address, retry_cnt+1, false, "start")
 		if err != nil {
 			log.Printf("[WORKER] Enqueue Error:%v(ProductId:%v,TransactionId:%v,RetryCount:%v)", err, product_id, transaction_id, retry_cnt)
+			return 400
 		}
 	} else {
 		st := Get(transaction_id)
 		switch st {
 			case "start":
-				if len(user_id) > 0  {
+				if len(user_id) == 0  {
+					// TODO
 					// BankAPIの使用(transfer_money)
 				} else {
 					// use strinp
 					payid := requestPayment(customerid, total_amount, address, retry_cnt)
 					if payid == "" || len(payid) <= 0 {
 						log.Printf("[WORKER] payid is nil. customerid is [%v]." , customerid)
+						return 400
 					}
 		
 					status = confirmPayment(cardid, payid)
 					if status != "succeeded" {
 						log.Printf("[WORKER] Authentication not successful.  payid:[%v] | customerid:[%v]." , payid, customerid)
+						return 400
 					}
 
 				}
@@ -164,6 +169,7 @@ func execute(transaction_id string, product_id string, customerid string, deal_s
 						updateStocks(product_id, insert_stock, db)
 					} else {
 						log.Println("[WORKER] The amount customer want to purchase is higher than the number of items in stock.")
+						return 400
 					}
 				} else {
 					// Execute restock
@@ -188,13 +194,18 @@ func execute(transaction_id string, product_id string, customerid string, deal_s
 
 			default:
 				log.Println("[WORKER] Do Nothing...")
+				return 400
 
 		} 
 		now_stocks, err = getStocks(product_id, db)
 		if now_stocks < 5 || err != nil {
 			_, err = celery_client.Delay(TaskName, transaction_id, product_id, customerid, deal_stock, total_amount, image_url, category, product_name, price, user_id, cardid, address, retry_cnt, true, "start")
 		}
+
+		return 0
 	}
+
+	return 0
 }
 
 func sendReqLog(transaction_id string, product_id string, customerid string, deal_stock int, total_amount int, user_id string, cardid string, address string, retry_cnt int, restock_flag bool, status string) {
@@ -308,7 +319,7 @@ func connectDB() (*sql.DB, error) {
 	mySQLHost := fmt.Sprintf("%s:%s@tcp(%s)/%s", user, pass, sdb, table)
 	db, err := sql.Open("mysql", mySQLHost)
 	if err = db.Ping(); err != nil {
-		log.Printf("db.Ping(): %s\n", err)
+		log.Printf("[WORKER] db.Ping(): %s\n", err)
 		return nil, err
 	}
 
@@ -339,7 +350,7 @@ func main() {
 
 	cli.StartWorker()
 	defer cli.StopWorker()
-	fmt.Printf("worker start: concurrency=%v\n", concurrency)
+	fmt.Printf("[WORKER] worker start: concurrency=%v\n", concurrency)
 
 	celery_client = cli
 
