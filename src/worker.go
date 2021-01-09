@@ -331,14 +331,13 @@ func main() {
 	concurrency := 3
 	stripe.Key = SECRET_KEY_STAGING
 	cli, _ := gocelery.NewCeleryClient(
-		gocelery.NewRedisCeleryBroker("redis.mockten.db.com:6379", Queue),
-		// gocelery.NewRedisCeleryBackend("redis://dev-redis.us-east1-b.c.go-portforio.internal:6379"),
-		gocelery.NewRedisCeleryBackend("redis.mockten.db.com:6379"),
+		gocelery.NewRedisCeleryBroker("redis://redis.mockten.db.com:6379", Queue),
+		gocelery.NewRedisCeleryBackend("redis://redis.mockten.db.com:6379"),
 		concurrency,
 	)
 
 	redis_client = redis.NewClient(&redis.Options{
-        Addr:     "redis.mockten.db.com:6379",
+        Addr:     "redis://redis.mockten.db.com:6379",
         Password: "", // no password set
         DB:       0,  // use default DB
     })
