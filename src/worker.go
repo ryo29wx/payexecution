@@ -107,6 +107,9 @@ func execute(transaction_id string, product_id string, customerid string, deal_s
 
 	exclusion := SetNX("ProductID", product_id)
 	if exclusion {
+		// debug
+		log.Println("[WORKER] exclusion route.")
+
 		if retry_cnt > 10 {
 			_, err = celery_client.Delay(NotifyTaskName, address, "The number of retries has been exceeded.　Please try again in a few minutes.")
 			if err != nil {
@@ -125,6 +128,8 @@ func execute(transaction_id string, product_id string, customerid string, deal_s
 		st := Get(transaction_id)
 		switch st {
 			case "start":
+				// debug
+				log.Println("[WORKER] start route.")
 				if len(user_id) == 0  {
 					// TODO
 					// BankAPIの使用(transfer_money)
@@ -144,10 +149,16 @@ func execute(transaction_id string, product_id string, customerid string, deal_s
 
 				}
 				// Overwrite the result of payment completion to status
+
+				// debug
+				log.Println("[WORKER] start done.")
 				HashSet(transaction_id, status)
 				fallthrough
 
 			case "succeeded":
+				// debug
+				log.Println("[WORKER] succeeded route.")
+
 				now_stocks, err = getStocks(product_id, db)
 
 				if !restock_flag {
@@ -179,6 +190,9 @@ func execute(transaction_id string, product_id string, customerid string, deal_s
 				fallthrough
 
 			case "settlement_done":
+				// debug
+				log.Println("[WORKER] settlement done route.")
+
 				_, err = celery_client.Delay(NotifyTaskName, address, fmt.Sprintf("The 'ProductName:[%v]' has been purchased.", product_name))
 				if err != nil {
 					log.Printf("[WORKER] SUCCESS notification failed.")
@@ -188,6 +202,9 @@ func execute(transaction_id string, product_id string, customerid string, deal_s
 				fallthrough
 
 			case "notification_done":
+				// debug
+				log.Println("[WORKER] settlement done route.")
+
 				// DELETE 
 				DELETE("ProductID")
 				DELETE(transaction_id)
@@ -219,7 +236,7 @@ func timeToString(t time.Time) string {
 
 func HashSet(key string, value string) {
 	// Set
-	fmt.Println("redis.Client.HSet KEY: %v VALUE: %v", key, value)
+	log.Println(fmt.Printf("redis.Client.HSet KEY: %v VALUE: %v", key, value))
 	err := redis_client.HSet(ctx, key, value).Err()
 	if err != nil {
 		fmt.Println("redis.Client.HSet Error:", err)
