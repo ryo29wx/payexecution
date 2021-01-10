@@ -93,7 +93,7 @@ func confirmPayment(cardid string, payid string) (status string) {
 
 func execute(transaction_id string, product_id string, customerid string, deal_stock int, total_amount int, image_url string, category int, product_name string, price int, user_id string, cardid string, address string, retry_cnt int, restock_flag bool, status string) int {
 	sendReqLog(transaction_id, product_id, customerid, deal_stock, total_amount, user_id, cardid, address, retry_cnt, restock_flag, status)
-	HashSet(transaction_id, status)
+	HashMSet(transaction_id, status)
 
 	// Connect DB(MySQL)
 	db, err := connectDB()
@@ -152,7 +152,7 @@ func execute(transaction_id string, product_id string, customerid string, deal_s
 
 				// debug
 				log.Println("[WORKER] start done.")
-				HashSet(transaction_id, status)
+				HashMSet(transaction_id, status)
 				fallthrough
 
 			case "succeeded":
@@ -172,8 +172,7 @@ func execute(transaction_id string, product_id string, customerid string, deal_s
 					ZAdd(zadd_key, z)
 
 					hsetValue := fmt.Sprintf("price:%v,image_url:%v,name:%v", price, image_url, product_name)
-					HashSet(product_id, hsetValue)
-
+					HashMSet(product_id, hsetValue)
 
 					if now_stocks >= deal_stock {
 						insert_stock := now_stocks - deal_stock
@@ -197,8 +196,7 @@ func execute(transaction_id string, product_id string, customerid string, deal_s
 				if err != nil {
 					log.Printf("[WORKER] SUCCESS notification failed.")
 				}
-				status = "settlement_done"
-				HashSet(transaction_id, status)
+				HashMSet(transaction_id, status)
 				fallthrough
 
 			case "notification_done":
@@ -243,10 +241,19 @@ func HashSet(key string, value string) {
 	}
 }
 
+func HashMSet(key string, value string) {
+	// Set
+	log.Println(fmt.Printf("redis.Client.HMSet KEY: %v VALUE: %v", key, value))
+	err := redis_client.HMSet(ctx, key, value).Err()
+	if err != nil {
+		fmt.Println("redis.Client.HMSet Error:", err)
+	}
+}
 
 func HashGet(key string, field string) string {
     // Get
-    // HGet(key, field string) *StringCmd
+	// HGet(key, field string) *StringCmd
+	
     hgetVal, err := redis_client.HGet(ctx, key, field).Result()
     if err != nil {
         fmt.Println("redis.Client.HGet Error:", err)
@@ -257,7 +264,8 @@ func HashGet(key string, field string) string {
 }
 
 func Get(key string) string {
-    // Get
+	// Get
+	log.Println(fmt.Printf("redis.Client.Get KEY: %v", key))
     val, err := redis_client.Get(ctx, key).Result()
     if err != nil {
         fmt.Println("redis.Client.Get Error:", err)
