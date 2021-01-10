@@ -218,7 +218,8 @@ func timeToString(t time.Time) string {
 }
 
 func HashSet(key string, value string) {
-    // Set
+	// Set
+	fmt.Println("redis.Client.HSet KEY: %v VALUE: %v", key, value)
 	err := redis_client.HSet(ctx, key, value).Err()
 	if err != nil {
 		fmt.Println("redis.Client.HSet Error:", err)
