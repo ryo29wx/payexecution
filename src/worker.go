@@ -337,7 +337,7 @@ func main() {
 	)
 
 	redis_client = redis.NewClient(&redis.Options{
-        Addr:     "redis://redis.mockten.db.com:6379",
+        Addr:     "redis.mockten.db.com:6379",
         Password: "", // no password set
         DB:       0,  // use default DB
     })
