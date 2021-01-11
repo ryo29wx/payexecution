@@ -30,6 +30,7 @@ const (
 	UPDATE_RESTOCK_QUERY       = "UPDATE PRODUCT_INFO SET STOCK='%v' WHERE PRODUCT_ID='%v'"
 	GET_STOCK_QUERY            = "SELECT STOCK FROM PRODUCT_INFO WHERE PRODUCT_ID='%v'"
 	LAYOUT                     = "2006-01-02"
+	TRANSACTION_ID             = "TransactionID"
 )
 
 var celery_client *gocelery.CeleryClient
@@ -93,7 +94,7 @@ func confirmPayment(cardid string, payid string) (status string) {
 
 func execute(transaction_id string, product_id string, customerid string, deal_stock int, total_amount int, image_url string, category int, product_name string, price int, user_id string, cardid string, address string, retry_cnt int, restock_flag bool, status string) int {
 	sendReqLog(transaction_id, product_id, customerid, deal_stock, total_amount, user_id, cardid, address, retry_cnt, restock_flag, status)
-	HashSet(transaction_id, status)
+	HashSet(TRANSACTION_ID, transaction_id, status)
 
 	// Connect DB(MySQL)
 	db, err := connectDB()
@@ -152,7 +153,7 @@ func execute(transaction_id string, product_id string, customerid string, deal_s
 
 				// debug
 				log.Println("[WORKER] start done.")
-				HashSet(transaction_id, status)
+				HashSet(TRANSACTION_ID, transaction_id, status)
 				fallthrough
 
 			case "succeeded":
@@ -172,7 +173,7 @@ func execute(transaction_id string, product_id string, customerid string, deal_s
 					ZAdd(zadd_key, z)
 
 					hsetValue := fmt.Sprintf("price:%v,image_url:%v,name:%v", price, image_url, product_name)
-					HashSet(product_id, hsetValue)
+					HashSet("RANKING", product_id, hsetValue)
 
 					if now_stocks >= deal_stock {
 						insert_stock := now_stocks - deal_stock
@@ -196,7 +197,7 @@ func execute(transaction_id string, product_id string, customerid string, deal_s
 				if err != nil {
 					log.Printf("[WORKER] SUCCESS notification failed.")
 				}
-				HashSet(transaction_id, status)
+				HashSet(TRANSACTION_ID, transaction_id, status)
 				fallthrough
 
 			case "notification_done":
@@ -232,10 +233,10 @@ func timeToString(t time.Time) string {
     return str
 }
 
-func HashSet(key string, value string) {
+func HashSet(key string, field string, value string) {
 	// Set
-	log.Println(fmt.Printf("redis.Client.HSet KEY: %v VALUE: %v", key, value))
-	err := redis_client.HSet(ctx, key, value).Err()
+	log.Println(fmt.Printf("redis.Client.HSet KEY: %v FIELD: %v VALUE: %v", key, field, value))
+	err := redis_client.HSet(ctx, key, field, value).Err()
 	if err != nil {
 		fmt.Println("redis.Client.HSet Error:", err)
 	}
