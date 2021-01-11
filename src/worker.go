@@ -168,7 +168,7 @@ func execute(transaction_id string, product_id string, customerid string, deal_s
 					// update redis
 					t := timeToString(time.Now())
 					zadd_key := fmt.Sprintf("%v_%v", t, category)
-					var z *redis.Z
+					z := &redis.Z{}
 					z.Score = float64(deal_stock)
 					z.Member = product_id
 					ZAdd(zadd_key, z)
