@@ -93,7 +93,7 @@ func confirmPayment(cardid string, payid string) (status string) {
 
 func execute(transaction_id string, product_id string, customerid string, deal_stock int, total_amount int, image_url string, category int, product_name string, price int, user_id string, cardid string, address string, retry_cnt int, restock_flag bool, status string) int {
 	sendReqLog(transaction_id, product_id, customerid, deal_stock, total_amount, user_id, cardid, address, retry_cnt, restock_flag, status)
-	HashMSet(transaction_id, status)
+	HashSet(transaction_id, status)
 
 	// Connect DB(MySQL)
 	db, err := connectDB()
@@ -152,7 +152,7 @@ func execute(transaction_id string, product_id string, customerid string, deal_s
 
 				// debug
 				log.Println("[WORKER] start done.")
-				HashMSet(transaction_id, status)
+				HashSet(transaction_id, status)
 				fallthrough
 
 			case "succeeded":
@@ -172,7 +172,7 @@ func execute(transaction_id string, product_id string, customerid string, deal_s
 					ZAdd(zadd_key, z)
 
 					hsetValue := fmt.Sprintf("price:%v,image_url:%v,name:%v", price, image_url, product_name)
-					HashMSet(product_id, hsetValue)
+					HashSet(product_id, hsetValue)
 
 					if now_stocks >= deal_stock {
 						insert_stock := now_stocks - deal_stock
@@ -196,7 +196,7 @@ func execute(transaction_id string, product_id string, customerid string, deal_s
 				if err != nil {
 					log.Printf("[WORKER] SUCCESS notification failed.")
 				}
-				HashMSet(transaction_id, status)
+				HashSet(transaction_id, status)
 				fallthrough
 
 			case "notification_done":
