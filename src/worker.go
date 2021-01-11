@@ -126,7 +126,8 @@ func execute(transaction_id string, product_id string, customerid string, deal_s
 			return 400
 		}
 	} else {
-		st := Get(transaction_id)
+		// st := Get(transaction_id)
+		st := HashGet(TRANSACTION_ID, transaction_id)
 		switch st {
 			case "start":
 				// debug
