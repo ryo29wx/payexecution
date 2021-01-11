@@ -367,9 +367,6 @@ func main() {
         Password: "", // no password set
         DB:       0,  // use default DB
 	})
-	
-	pong, err := redis_client.Ping(ctx).Result()
-	log.Println(pong, err)
 
 	cli.Register("worker.execute", execute)
 
@@ -385,7 +382,10 @@ func main() {
 	ctx = context.Background()
 	ctx_local, cancel := context.WithTimeout(ctx, 5*time.Hour)
 	defer cancel()
-    ctx = ctx_local
+	ctx = ctx_local
+	
+	pong, err := redis_client.Ping(ctx).Result()
+	log.Println(pong, err)
 
 	select {
 	case sig := <-c:
