@@ -224,7 +224,7 @@ func execute(transaction_id string, product_id string, customerid string, deal_s
 }
 
 func sendReqLog(transaction_id string, product_id string, customerid string, deal_stock int, total_amount int, user_id string, cardid string, address string, retry_cnt int, restock_flag bool, status string) {
-	log.Printf("[WORKER] transaction_id:[%v] | product_id:[%v] | customerid:[%v] | deal_stock:[%v] | total_amount:[%v] | user_id:[%v] | cardid:[%v] | address:[%v] | retry_cnt:[%v] | restock_flag:[%v]", product_id, customerid, deal_stock, total_amount, user_id, cardid, address, retry_cnt, restock_flag, status)
+	log.Printf("[WORKER] transaction_id:[%v] | product_id:[%v] | customerid:[%v] | deal_stock:[%v] | total_amount:[%v] | user_id:[%v] | cardid:[%v] | address:[%v] | retry_cnt:[%v] | restock_flag:[%v] | status:[%v]", transaction_id, product_id, customerid, deal_stock, total_amount, user_id, cardid, address, retry_cnt, restock_flag, status)
 }
 
 func timeToString(t time.Time) string {
@@ -366,7 +366,10 @@ func main() {
         Addr:     "redis.mockten.db.com:6379",
         Password: "", // no password set
         DB:       0,  // use default DB
-    })
+	})
+	
+	pong, err := redis_client.Ping(ctx).Result()
+	log.Println(pong, err)
 
 	cli.Register("worker.execute", execute)
 
