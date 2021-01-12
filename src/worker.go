@@ -185,9 +185,14 @@ func execute(transaction_id string, product_id string, customerid string, deal_s
 					}
 				} else {
 					// Execute restock
+					// debug
+					log.Println("[WORKER] restock route.")
+
 					insert_stock := now_stocks + deal_stock
 					updateStocks(product_id, insert_stock, db)
 				}
+				status = "settlement_done"
+				HashSet(TRANSACTION_ID, transaction_id, status)
 				fallthrough
 
 			case "settlement_done":
@@ -198,12 +203,14 @@ func execute(transaction_id string, product_id string, customerid string, deal_s
 				if err != nil {
 					log.Printf("[WORKER] SUCCESS notification failed.")
 				}
+
+				status = "notification_done"
 				HashSet(TRANSACTION_ID, transaction_id, status)
 				fallthrough
 
 			case "notification_done":
 				// debug
-				log.Println("[WORKER] settlement done route.")
+				log.Println("[WORKER] notification done route.")
 
 				// DELETE 
 				DELETE("ProductID")
@@ -216,6 +223,7 @@ func execute(transaction_id string, product_id string, customerid string, deal_s
 		} 
 		now_stocks, err = getStocks(product_id, db)
 		if now_stocks < 5 || err != nil {
+			log.Println("[WORKER] Change restock flg is TRUE!!")
 			_, err = celery_client.Delay(TaskName, transaction_id, product_id, customerid, deal_stock, total_amount, image_url, category, product_name, price, user_id, cardid, address, retry_cnt, true, "start")
 		}
 
@@ -226,7 +234,7 @@ func execute(transaction_id string, product_id string, customerid string, deal_s
 }
 
 func sendReqLog(transaction_id string, product_id string, customerid string, deal_stock int, total_amount int, user_id string, cardid string, address string, retry_cnt int, restock_flag bool, status string) {
-	log.Printf("[WORKER] transaction_id:[%v] | product_id:[%v] | customerid:[%v] | deal_stock:[%v] | total_amount:[%v] | user_id:[%v] | cardid:[%v] | address:[%v] | retry_cnt:[%v] | restock_flag:[%v] | status:[%v]", transaction_id, product_id, customerid, deal_stock, total_amount, user_id, cardid, address, retry_cnt, restock_flag, status)
+	log.Println("[WORKER] transaction_id:[%v] | product_id:[%v] | customerid:[%v] | deal_stock:[%v] | total_amount:[%v] | user_id:[%v] | cardid:[%v] | address:[%v] | retry_cnt:[%v] | restock_flag:[%v] | status:[%v]", transaction_id, product_id, customerid, deal_stock, total_amount, user_id, cardid, address, retry_cnt, restock_flag, status)
 }
 
 func timeToString(t time.Time) string {
@@ -236,7 +244,7 @@ func timeToString(t time.Time) string {
 
 func HashSet(key string, field string, value string) {
 	// Set
-	log.Println(fmt.Printf("redis.Client.HSet KEY: %v FIELD: %v VALUE: %v", key, field, value))
+	fmt.Println("redis.Client.HSet KEY: %v FIELD: %v VALUE: %v", key, field, value)
 	err := redis_client.HSet(ctx, key, field, value).Err()
 	if err != nil {
 		fmt.Println("redis.Client.HSet Error:", err)
@@ -245,7 +253,7 @@ func HashSet(key string, field string, value string) {
 
 func HashMSet(key string, value string) {
 	// Set
-	log.Println(fmt.Printf("redis.Client.HMSet KEY: %v VALUE: %v", key, value))
+	log.Println(fmt.Println("redis.Client.HMSet KEY: %v VALUE: %v", key, value))
 	err := redis_client.HMSet(ctx, key, value).Err()
 	if err != nil {
 		fmt.Println("redis.Client.HMSet Error:", err)
@@ -267,7 +275,7 @@ func HashGet(key string, field string) string {
 
 func Get(key string) string {
 	// Get
-	log.Println(fmt.Printf("redis.Client.Get KEY: %v", key))
+	fmt.Println("redis.Client.Get KEY: %v", key)
     val, err := redis_client.Get(ctx, key).Result()
     if err != nil {
         fmt.Println("redis.Client.Get Error:", err)
@@ -278,10 +286,11 @@ func Get(key string) string {
 }
 
 func ZAdd(key string, z *redis.Z)  {
-    // Get
+	// Get
+	fmt.Println("redis.Client.ZAdd KEY: %v", key)
     err := redis_client.ZAdd(ctx, key, z).Err()
     if err != nil {
-        fmt.Println("redis.Client.Get Error:", err)
+        fmt.Println("redis.Client.ZAdd Error:", err)
     }
 	
 }
