@@ -1,6 +1,9 @@
 # Use the latest 2.1 version of CircleCI pipeline process engine. See: https://circleci.com/docs/2.0/configuration-reference
 version: 2.1
 # Use a package of configuration called an orb.
+orbs:
+  slack: circleci/slack@3.3.0
+
 jobs:
   build:
     docker:
@@ -22,10 +25,14 @@ jobs:
             curl -s https://dl.google.com/dl/cloudsdk/channels/rapid/downloads/google-cloud-sdk-196.0.0-linux-x86_64.tar.gz | tar xz
             source ./google-cloud-sdk/path.bash.inc
       - run:
-          name: Build the ecpay-purchase
+          name: Build the consumer
           command: |
             docker build -t ${GCR_REPO_1} .
       - run:
-          name: Push the ecpay-purchase
+          name: Push the consumer
           command: |
             docker push ${GCR_REPO_1}
+      - slack/status:
+          success_message: ':circleci-pass: $CIRCLE_BRANCH のデプロイが完了しました\n:github_octocat: User：$CIRCLE_USERNAME'
+          failure_message: ':circleci-fail: $CIRCLE_BRANCH のデプロイが失敗しました\n:github_octocat: User：$CIRCLE_USERNAME'
+          webhook: '${SLACK_WEBHOOK}'
