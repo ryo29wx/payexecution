@@ -23,6 +23,7 @@ const (
 	TaskName                   = "worker.execute"
 	NotifyTaskName             = "worker.notification"
 	Queue                      = "payment"
+	Notification               = "notification"
 	PUBLISHABLE_KEY_STAGING    = "pk_test_j5fvxJmoN3TlTaNTgcATv0W000HRwOI317"
 	PUBLISHABLE_KEY_PRODUCTION = "*******"
 	SECRET_KEY_STAGING         = "sk_test_v4QrE3LoY9Cu2ki3IwQylABI00Hbes7WQT"
@@ -34,8 +35,15 @@ const (
 )
 
 var celery_client *gocelery.CeleryClient
+var notify_client *gocelery.CeleryClient
 var redis_client *redis.Client
 var ctx context.Context
+
+type Connect interface {
+	ConnectDB() (*sql.DB, error)
+}
+
+type DB struct {}
 /*
 Create a unique PaymentIntent in the order session.　　
 This is for later retracing the purchase history, etc.
@@ -97,14 +105,25 @@ func execute(transaction_id string, product_id string, customerid string, deal_s
 	HashSet(TRANSACTION_ID, transaction_id, status)
 
 	// Connect DB(MySQL)
-	db, err := connectDB()
+	d := DB{}
+	db, err := d.ConnectDB()
 	if err != nil {
 		log.Printf("[WORKER] DB Connection ERROR!! in worker.go")
 		return 400
 	}
 	defer db.Close()
 
-	var now_stocks int
+	now_stocks, err := getStocks(product_id, db)
+
+	if restock_flag {
+		// Execute restock
+		// debug
+		log.Println("[WORKER] first restock route.")
+
+		insert_stock := now_stocks + deal_stock
+		updateStocks(product_id, insert_stock, db)
+		return 0
+	}
 
 	exclusion := SetNX("ProductID", product_id)
 	if exclusion {
@@ -112,7 +131,7 @@ func execute(transaction_id string, product_id string, customerid string, deal_s
 		log.Println("[WORKER] exclusion route.")
 
 		if retry_cnt > 10 {
-			_, err = celery_client.Delay(NotifyTaskName, address, "The number of retries has been exceeded.　Please try again in a few minutes.")
+			_, err = notify_client.Delay(NotifyTaskName, address, "The number of retries has been exceeded.　Please try again in a few minutes.")
 			if err != nil {
 				log.Printf("[WORKER] FAILER notification failed.")
 			}
@@ -199,7 +218,7 @@ func execute(transaction_id string, product_id string, customerid string, deal_s
 				// debug
 				log.Println("[WORKER] settlement done route.")
 
-				_, err = celery_client.Delay(NotifyTaskName, address, fmt.Sprintf("The 'ProductName:[%v]' has been purchased.", product_name))
+				_, err = notify_client.Delay(NotifyTaskName, address, fmt.Sprintf("The 'ProductName:[%v]' has been purchased.", product_name))
 				if err != nil {
 					log.Printf("[WORKER] SUCCESS notification failed.")
 				}
@@ -224,7 +243,7 @@ func execute(transaction_id string, product_id string, customerid string, deal_s
 		now_stocks, err = getStocks(product_id, db)
 		if now_stocks < 5 || err != nil {
 			log.Println("[WORKER] Change restock flg is TRUE!!")
-			_, err = celery_client.Delay(TaskName, transaction_id, product_id, customerid, deal_stock, total_amount, image_url, category, product_name, price, user_id, cardid, address, retry_cnt, true, "start")
+			_, err = celery_client.Delay(TaskName, transaction_id, product_id, customerid, 5, total_amount, image_url, category, product_name, price, user_id, cardid, address, retry_cnt, true, "start")
 		}
 
 		return 0
@@ -243,7 +262,6 @@ func timeToString(t time.Time) string {
 }
 
 func HashSet(key string, field string, value string) {
-	// Set
 	fmt.Println("redis.Client.HSet KEY: %v FIELD: %v VALUE: %v", key, field, value)
 	err := redis_client.HSet(ctx, key, field, value).Err()
 	if err != nil {
@@ -253,7 +271,7 @@ func HashSet(key string, field string, value string) {
 
 func HashMSet(key string, value string) {
 	// Set
-	log.Println(fmt.Println("redis.Client.HMSet KEY: %v VALUE: %v", key, value))
+	fmt.Println("redis.Client.HMSet KEY: %v VALUE: %v", key, value)
 	err := redis_client.HMSet(ctx, key, value).Err()
 	if err != nil {
 		fmt.Println("redis.Client.HMSet Error:", err)
@@ -347,7 +365,7 @@ func updateStocks(product_id string, update_stocks int,  db *sql.DB) {
 }
 
 // connect DB(mysql)
-func connectDB() (*sql.DB, error) {
+func (d DB) ConnectDB() (*sql.DB, error) {
 	user := os.Getenv("SECRET_USER")
 	pass := os.Getenv("SECRET_PASS")
 	sdb := os.Getenv("SECRET_DB")
@@ -371,6 +389,12 @@ func main() {
 		gocelery.NewRedisCeleryBroker("redis://redis.mockten.db.com:6379", Queue),
 		gocelery.NewRedisCeleryBackend("redis://redis.mockten.db.com:6379"),
 		concurrency,
+	)
+
+	notify_client, _ = gocelery.NewCeleryClient(
+		gocelery.NewRedisCeleryBroker("redis://redis.mockten.db.com:6379", Notification),
+		gocelery.NewRedisCeleryBackend("redis://redis.mockten.db.com:6379"),
+		1,
 	)
 
 	redis_client = redis.NewClient(&redis.Options{
