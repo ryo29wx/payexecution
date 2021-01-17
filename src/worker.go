@@ -39,11 +39,26 @@ var notify_client *gocelery.CeleryClient
 var redis_client *redis.Client
 var ctx context.Context
 
-type Connect interface {
+type Connecter interface {
 	ConnectDB() (*sql.DB, error)
 }
 
-type DB struct {}
+type Controller interface {
+	HashSet(string, string, string)
+	HashMSet(string, string)
+	HashGet(string, string) string 
+	Get(string) string
+	ZAdd(string, *redis.Z)
+	SetNX(string, string) bool
+	DELETE(string)
+	HashDelete(string, string)
+}
+
+type Connect struct {}
+
+type RedisController struct {}
+
+
 /*
 Create a unique PaymentIntent in the order session.　　
 This is for later retracing the purchase history, etc.
@@ -102,11 +117,13 @@ func confirmPayment(cardid string, payid string) (status string) {
 
 func execute(transaction_id string, product_id string, customerid string, deal_stock int, total_amount int, image_url string, category int, product_name string, price int, user_id string, cardid string, address string, retry_cnt int, restock_flag bool, status string) int {
 	sendReqLog(transaction_id, product_id, customerid, deal_stock, total_amount, user_id, cardid, address, retry_cnt, restock_flag, status)
+
+	// initialize redis controller struct 
 	HashSet(TRANSACTION_ID, transaction_id, status)
 
 	// Connect DB(MySQL)
-	d := DB{}
-	db, err := d.ConnectDB()
+	conn_db := Connect{}
+	db, err := conn_db.ConnectDB()
 	if err != nil {
 		log.Printf("[WORKER] DB Connection ERROR!! in worker.go")
 		return 400
@@ -196,6 +213,7 @@ func execute(transaction_id string, product_id string, customerid string, deal_s
 					HashSet("RANKING", product_id, hsetValue)
 
 					if now_stocks >= deal_stock {
+						log.Println("[WORKER] update stock route.")
 						insert_stock := now_stocks - deal_stock
 						updateStocks(product_id, insert_stock, db)
 					} else {
@@ -253,7 +271,7 @@ func execute(transaction_id string, product_id string, customerid string, deal_s
 }
 
 func sendReqLog(transaction_id string, product_id string, customerid string, deal_stock int, total_amount int, user_id string, cardid string, address string, retry_cnt int, restock_flag bool, status string) {
-	log.Println("[WORKER] transaction_id:[%v] | product_id:[%v] | customerid:[%v] | deal_stock:[%v] | total_amount:[%v] | user_id:[%v] | cardid:[%v] | address:[%v] | retry_cnt:[%v] | restock_flag:[%v] | status:[%v]", transaction_id, product_id, customerid, deal_stock, total_amount, user_id, cardid, address, retry_cnt, restock_flag, status)
+	log.Printf("[WORKER] transaction_id:[%v] | product_id:[%v] | customerid:[%v] | deal_stock:[%v] | total_amount:[%v] | user_id:[%v] | cardid:[%v] | address:[%v] | retry_cnt:[%v] | restock_flag:[%v] | status:[%v]", transaction_id, product_id, customerid, deal_stock, total_amount, user_id, cardid, address, retry_cnt, restock_flag, status)
 }
 
 func timeToString(t time.Time) string {
@@ -262,19 +280,19 @@ func timeToString(t time.Time) string {
 }
 
 func HashSet(key string, field string, value string) {
-	fmt.Println("redis.Client.HSet KEY: %v FIELD: %v VALUE: %v", key, field, value)
+	fmt.Printf("[WORKER] redis.Client.HSet KEY: %v FIELD: %v VALUE: %v", key, field, value)
 	err := redis_client.HSet(ctx, key, field, value).Err()
 	if err != nil {
-		fmt.Println("redis.Client.HSet Error:", err)
+		fmt.Println("[WORKER] redis.Client.HSet Error:", err)
 	}
 }
 
 func HashMSet(key string, value string) {
 	// Set
-	fmt.Println("redis.Client.HMSet KEY: %v VALUE: %v", key, value)
+	fmt.Printf("[WORKER] redis.Client.HMSet KEY: %v VALUE: %v", key, value)
 	err := redis_client.HMSet(ctx, key, value).Err()
 	if err != nil {
-		fmt.Println("redis.Client.HMSet Error:", err)
+		fmt.Println("[WORKER] redis.Client.HMSet Error:", err)
 	}
 }
 
@@ -284,7 +302,7 @@ func HashGet(key string, field string) string {
 	
     hgetVal, err := redis_client.HGet(ctx, key, field).Result()
     if err != nil {
-        fmt.Println("redis.Client.HGet Error:", err)
+        fmt.Println("[WORKER] redis.Client.HGet Error:", err)
     }
 	fmt.Println(hgetVal)
 	
@@ -293,7 +311,7 @@ func HashGet(key string, field string) string {
 
 func Get(key string) string {
 	// Get
-	fmt.Println("redis.Client.Get KEY: %v", key)
+	fmt.Printf("redis.Client.Get KEY: %v", key)
     val, err := redis_client.Get(ctx, key).Result()
     if err != nil {
         fmt.Println("redis.Client.Get Error:", err)
@@ -305,7 +323,7 @@ func Get(key string) string {
 
 func ZAdd(key string, z *redis.Z)  {
 	// Get
-	fmt.Println("redis.Client.ZAdd KEY: %v", key)
+	fmt.Printf("redis.Client.ZAdd KEY: %v", key)
     err := redis_client.ZAdd(ctx, key, z).Err()
     if err != nil {
         fmt.Println("redis.Client.ZAdd Error:", err)
@@ -341,7 +359,7 @@ func getStocks(product_id string, db *sql.DB) (int, error) {
 	stock_query := fmt.Sprintf(GET_STOCK_QUERY, product_id)
 	stocksRows, err := db.Query(stock_query)
 	if err != nil {
-		log.Printf("SELECT stock Query Error: %v | Stock Query is: %v ", err, stock_query)
+		log.Printf("[WORKER] SELECT stock Query Error: %v | Stock Query is: %v ", err, stock_query)
 		return 0, err
 	}
 	defer stocksRows.Close()
@@ -358,6 +376,7 @@ func getStocks(product_id string, db *sql.DB) (int, error) {
 
 func updateStocks(product_id string, update_stocks int,  db *sql.DB) {
 	update_stock_query := fmt.Sprintf(UPDATE_RESTOCK_QUERY, update_stocks, product_id)
+	log.Printf("[WORKER] update stock query : %v", update_stock_query)
 	_, err := db.Exec(update_stock_query)
 	if err != nil {
 		log.Printf("restock UPDATE Query Error: %v | QUERY is: %v ", err, update_stock_query)
@@ -365,7 +384,7 @@ func updateStocks(product_id string, update_stocks int,  db *sql.DB) {
 }
 
 // connect DB(mysql)
-func (d DB) ConnectDB() (*sql.DB, error) {
+func (d Connect) ConnectDB() (*sql.DB, error) {
 	user := os.Getenv("SECRET_USER")
 	pass := os.Getenv("SECRET_PASS")
 	sdb := os.Getenv("SECRET_DB")
