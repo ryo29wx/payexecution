@@ -9,6 +9,7 @@ import (
 	"log"
 	"time"
 	"context"
+	"strings"
 
 	_ "github.com/go-sql-driver/mysql"
 	"github.com/go-redis/redis"
@@ -203,11 +204,14 @@ func execute(transaction_id string, product_id string, customerid string, deal_s
 					// Usually purchased
 					// update redis
 					t := timeToString(time.Now())
-					zadd_key := fmt.Sprintf("%v_%v", t, category)
+					zaddKey := fmt.Sprintf("%v_%v", t, category)
+					zaddKey99 := fmt.Sprintf("%v_%v", t, "99")
+
 					z := &redis.Z{}
 					z.Score = float64(deal_stock)
 					z.Member = product_id
-					ZAdd(zadd_key, z)
+					ZAdd(zaddKey, z)
+					ZAdd(zaddKey99, z)
 
 					hsetValue := fmt.Sprintf("price:%v,image_url:%v,name:%v", price, image_url, product_name)
 					HashSet("RANKING", product_id, hsetValue)
@@ -275,12 +279,13 @@ func sendReqLog(transaction_id string, product_id string, customerid string, dea
 }
 
 func timeToString(t time.Time) string {
-    str := t.Format(LAYOUT)
+	str := t.Format(LAYOUT)
+	str = strings.Replace(str, "-", "", -1)
     return str
 }
 
 func HashSet(key string, field string, value string) {
-	fmt.Printf("[WORKER] redis.Client.HSet KEY: %v FIELD: %v VALUE: %v", key, field, value)
+	log.Printf("[WORKER] redis.Client.HSet KEY: %v FIELD: %v VALUE: %v", key, field, value)
 	err := redis_client.HSet(ctx, key, field, value).Err()
 	if err != nil {
 		fmt.Println("[WORKER] redis.Client.HSet Error:", err)
@@ -289,7 +294,7 @@ func HashSet(key string, field string, value string) {
 
 func HashMSet(key string, value string) {
 	// Set
-	fmt.Printf("[WORKER] redis.Client.HMSet KEY: %v VALUE: %v", key, value)
+	log.Printf("[WORKER] redis.Client.HMSet KEY: %v VALUE: %v", key, value)
 	err := redis_client.HMSet(ctx, key, value).Err()
 	if err != nil {
 		fmt.Println("[WORKER] redis.Client.HMSet Error:", err)
@@ -311,7 +316,7 @@ func HashGet(key string, field string) string {
 
 func Get(key string) string {
 	// Get
-	fmt.Printf("redis.Client.Get KEY: %v", key)
+	log.Printf("redis.Client.Get KEY: %v", key)
     val, err := redis_client.Get(ctx, key).Result()
     if err != nil {
         fmt.Println("redis.Client.Get Error:", err)
@@ -323,7 +328,7 @@ func Get(key string) string {
 
 func ZAdd(key string, z *redis.Z)  {
 	// Get
-	fmt.Printf("redis.Client.ZAdd KEY: %v", key)
+	log.Printf("redis.Client.ZAdd KEY: %v", key)
     err := redis_client.ZAdd(ctx, key, z).Err()
     if err != nil {
         fmt.Println("redis.Client.ZAdd Error:", err)
@@ -332,6 +337,7 @@ func ZAdd(key string, z *redis.Z)  {
 }
 
 func SetNX(key string, value string) bool {
+	log.Printf("redis.Client.SetNX KEY: %v VALUE: %v", key, value)
 	res, err := redis_client.SetNX(ctx, key, value, 0).Result()
 	if err != nil {
 		fmt.Println("redis.Client.SetNX Error:", err)
