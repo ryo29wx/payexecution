@@ -213,8 +213,10 @@ func execute(transaction_id string, product_id string, customerid string, deal_s
 					ZAdd(zaddKey, z)
 					ZAdd(zaddKey99, z)
 
-					hsetValue := fmt.Sprintf("price:%v,image_url:%v,name:%v", price, image_url, product_name)
-					HashSet("RANKING", product_id, hsetValue)
+					// hsetValue := fmt.Sprintf("price:%v,image_url:%v,name:%v", price, image_url, product_name)
+					HashSet(product_id, "price", price)
+					HashSet(product_id, "url", image_url)
+					HashSet(product_id, "name", product_name)
 
 					if now_stocks >= deal_stock {
 						log.Println("[WORKER] update stock route.")
@@ -284,7 +286,7 @@ func timeToString(t time.Time) string {
     return str
 }
 
-func HashSet(key string, field string, value string) {
+func HashSet(key string, field string, value interface{}) {
 	log.Printf("[WORKER] redis.Client.HSet KEY: %v FIELD: %v VALUE: %v", key, field, value)
 	err := redis_client.HSet(ctx, key, field, value).Err()
 	if err != nil {
