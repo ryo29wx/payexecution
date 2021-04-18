@@ -1,22 +1,26 @@
 package main
 
 import (
+	"context"
 	"database/sql"
 	"fmt"
+	"log"
+	"net/http"
 	"os"
 	"os/signal"
 	"reflect"
-	"log"
-	"time"
-	"context"
 	"strings"
+	"time"
 
-	_ "github.com/go-sql-driver/mysql"
 	"github.com/go-redis/redis"
+	_ "github.com/go-sql-driver/mysql"
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
+
 	//github.com/gocelery/gocelery"
-	"github.com/yabamuro/gocelery"
 	stripe "github.com/stripe/stripe-go"
 	paymentintent "github.com/stripe/stripe-go/paymentintent"
+	"github.com/yabamuro/gocelery"
 )
 
 const (
@@ -40,6 +44,23 @@ var notify_client *gocelery.CeleryClient
 var redis_client *redis.Client
 var ctx context.Context
 
+var (
+	celeryReqs = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "rcv_req_celery_payexecution",
+			Help: "How many Celery requests processed.",
+		},
+		[]string{"code", "method"},
+	)
+	celerySends = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "snd_resp_celery_payexecution",
+			Help: "How many Celery sends processed.",
+		},
+		[]string{"code", "method"},
+	)
+)
+
 type Connecter interface {
 	ConnectDB() (*sql.DB, error)
 }
@@ -47,7 +68,7 @@ type Connecter interface {
 type Controller interface {
 	HashSet(string, string, string)
 	HashMSet(string, string)
-	HashGet(string, string) string 
+	HashGet(string, string) string
 	Get(string) string
 	ZAdd(string, *redis.Z)
 	SetNX(string, string) bool
@@ -55,19 +76,18 @@ type Controller interface {
 	HashDelete(string, string)
 }
 
-type Connect struct {}
+type Connect struct{}
 
-type RedisController struct {}
-
+type RedisController struct{}
 
 /*
-Create a unique PaymentIntent in the order session.　　
+Create a unique PaymentIntent in the order session.
 This is for later retracing the purchase history, etc.
 @see : https://stripe.com/docs/api/payment_intents
 */
 func requestPayment(customerid string, total_amount int, address string, retry_cnt int) (payid string) {
 	payparams := &stripe.PaymentIntentParams{
-		Amount:   stripe.Int64(int64(total_amount)),
+		Amount:   stripe.Int64(int64(total_amount) / 10),
 		Customer: stripe.String(customerid),
 		Currency: stripe.String(string(stripe.CurrencyUSD)),
 		// Receipt_email: stripe.String(address),
@@ -117,9 +137,10 @@ func confirmPayment(cardid string, payid string) (status string) {
 }
 
 func execute(transaction_id string, product_id string, customerid string, deal_stock int, total_amount int, image_url string, category int, product_name string, price int, user_id string, cardid string, address string, retry_cnt int, restock_flag bool, status string) int {
+	countReqs()
 	sendReqLog(transaction_id, product_id, customerid, deal_stock, total_amount, user_id, cardid, address, retry_cnt, restock_flag, status)
 
-	// initialize redis controller struct 
+	// initialize redis controller struct
 	HashSet(TRANSACTION_ID, transaction_id, status)
 
 	// Connect DB(MySQL)
@@ -166,110 +187,110 @@ func execute(transaction_id string, product_id string, customerid string, deal_s
 		// st := Get(transaction_id)
 		st := HashGet(TRANSACTION_ID, transaction_id)
 		switch st {
-			case "start":
-				// debug
-				log.Println("[WORKER] start route.")
-				if len(user_id) == 0  {
-					// TODO
-					// BankAPIの使用(transfer_money)
-				} else {
-					// use strinp
-					payid := requestPayment(customerid, total_amount, address, retry_cnt)
-					if payid == "" || len(payid) <= 0 {
-						log.Printf("[WORKER] payid is nil. customerid is [%v]." , customerid)
-						return 400
-					}
-		
-					status = confirmPayment(cardid, payid)
-					if status != "succeeded" {
-						log.Printf("[WORKER] Authentication not successful.  payid:[%v] | customerid:[%v]." , payid, customerid)
-						return 400
-					}
-
+		case "start":
+			// debug
+			log.Println("[WORKER] start route.")
+			if len(user_id) == 0 {
+				// TODO
+				// BankAPIの使用(transfer_money)
+			} else {
+				// use strinp
+				payid := requestPayment(customerid, total_amount, address, retry_cnt)
+				if payid == "" || len(payid) <= 0 {
+					log.Printf("[WORKER] payid is nil. customerid is [%v].", customerid)
+					return 400
 				}
-				// Overwrite the result of payment completion to status
 
-				// debug
-				log.Println("[WORKER] start done.")
-				HashSet(TRANSACTION_ID, transaction_id, status)
-				fallthrough
+				status = confirmPayment(cardid, payid)
+				if status != "succeeded" {
+					log.Printf("[WORKER] Authentication not successful.  payid:[%v] | customerid:[%v].", payid, customerid)
+					return 400
+				}
 
-			case "succeeded":
-				// debug
-				log.Println("[WORKER] succeeded route.")
+			}
+			// Overwrite the result of payment completion to status
 
-				now_stocks, err = getStocks(product_id, db)
+			// debug
+			log.Println("[WORKER] start done.")
+			HashSet(TRANSACTION_ID, transaction_id, status)
+			fallthrough
 
-				if !restock_flag {
-					// Usually purchased
-					// update redis
-					t := timeToString(time.Now())
-					zaddKey := fmt.Sprintf("%v_%v", t, category)
-					zaddKey99 := fmt.Sprintf("%v_%v", t, "99")
+		case "succeeded":
+			// debug
+			log.Println("[WORKER] succeeded route.")
 
-					z := &redis.Z{}
-					z.Score = float64(deal_stock)
-					z.Member = product_id
-					ZAdd(zaddKey, z)
-					ZAdd(zaddKey99, z)
+			now_stocks, err = getStocks(product_id, db)
 
-					// hsetValue := fmt.Sprintf("price:%v,image_url:%v,name:%v", price, image_url, product_name)
-					HashSet(product_id, "price", price)
-					HashSet(product_id, "url", image_url)
-					HashSet(product_id, "name", product_name)
+			if !restock_flag {
+				// Usually purchased
+				// update redis
+				t := timeToString(time.Now())
+				zaddKey := fmt.Sprintf("%v_%v", t, category)
+				zaddKey99 := fmt.Sprintf("%v_%v", t, "99")
 
-					if now_stocks >= deal_stock {
-						log.Println("[WORKER] update stock route.")
-						insert_stock := now_stocks - deal_stock
-						updateStocks(product_id, insert_stock, db)
-					} else {
-						log.Println("[WORKER] The amount customer want to purchase is higher than the number of items in stock.")
-						return 400
-					}
-				} else {
-					// Execute restock
-					// debug
-					log.Println("[WORKER] restock route.")
+				z := &redis.Z{}
+				z.Score = float64(deal_stock)
+				z.Member = product_id
+				ZAdd(zaddKey, z)
+				ZAdd(zaddKey99, z)
 
-					insert_stock := now_stocks + deal_stock
+				// hsetValue := fmt.Sprintf("price:%v,image_url:%v,name:%v", price, image_url, product_name)
+				HashSet(product_id, "price", price)
+				HashSet(product_id, "url", image_url)
+				HashSet(product_id, "name", product_name)
+
+				if now_stocks >= deal_stock {
+					log.Println("[WORKER] update stock route.")
+					insert_stock := now_stocks - deal_stock
 					updateStocks(product_id, insert_stock, db)
+				} else {
+					log.Println("[WORKER] The amount customer want to purchase is higher than the number of items in stock.")
+					return 400
 				}
-				status = "settlement_done"
-				HashSet(TRANSACTION_ID, transaction_id, status)
-				fallthrough
-
-			case "settlement_done":
+			} else {
+				// Execute restock
 				// debug
-				log.Println("[WORKER] settlement done route.")
+				log.Println("[WORKER] restock route.")
 
-				_, err = notify_client.Delay(NotifyTaskName, address, fmt.Sprintf("The 'ProductName:[%v]' has been purchased.", product_name))
-				if err != nil {
-					log.Printf("[WORKER] SUCCESS notification failed.")
-				}
+				insert_stock := now_stocks + deal_stock
+				updateStocks(product_id, insert_stock, db)
+			}
+			status = "settlement_done"
+			HashSet(TRANSACTION_ID, transaction_id, status)
+			fallthrough
 
-				status = "notification_done"
-				HashSet(TRANSACTION_ID, transaction_id, status)
-				fallthrough
+		case "settlement_done":
+			// debug
+			log.Println("[WORKER] settlement done route.")
 
-			case "notification_done":
-				// debug
-				log.Println("[WORKER] notification done route.")
+			_, err = notify_client.Delay(NotifyTaskName, address, fmt.Sprintf("The 'ProductName:[%v]' has been purchased.", product_name))
+			if err != nil {
+				log.Printf("[WORKER] SUCCESS notification failed.")
+			}
 
-				// DELETE 
-				DELETE("ProductID")
-				DELETE(transaction_id)
+			status = "notification_done"
+			HashSet(TRANSACTION_ID, transaction_id, status)
+			fallthrough
 
-			default:
-				log.Println("[WORKER] Do Nothing...")
-				return 400
+		case "notification_done":
+			// debug
+			log.Println("[WORKER] notification done route.")
 
-		} 
+			// DELETE
+			DELETE("ProductID")
+			DELETE(transaction_id)
+
+		default:
+			log.Println("[WORKER] Do Nothing...")
+			return 400
+
+		}
 		now_stocks, err = getStocks(product_id, db)
 		if now_stocks < 5 || err != nil {
 			log.Println("[WORKER] Change restock flg is TRUE!!")
 			_, err = celery_client.Delay(TaskName, transaction_id, product_id, customerid, 5, total_amount, image_url, category, product_name, price, user_id, cardid, address, retry_cnt, true, "start")
 		}
-
+		countSends()
 		return 0
 	}
 
@@ -283,7 +304,7 @@ func sendReqLog(transaction_id string, product_id string, customerid string, dea
 func timeToString(t time.Time) string {
 	str := t.Format(LAYOUT)
 	str = strings.Replace(str, "-", "", -1)
-    return str
+	return str
 }
 
 func HashSet(key string, field string, value interface{}) {
@@ -304,38 +325,38 @@ func HashMSet(key string, value string) {
 }
 
 func HashGet(key string, field string) string {
-    // Get
+	// Get
 	// HGet(key, field string) *StringCmd
-	
-    hgetVal, err := redis_client.HGet(ctx, key, field).Result()
-    if err != nil {
-        fmt.Println("[WORKER] redis.Client.HGet Error:", err)
-    }
+
+	hgetVal, err := redis_client.HGet(ctx, key, field).Result()
+	if err != nil {
+		fmt.Println("[WORKER] redis.Client.HGet Error:", err)
+	}
 	fmt.Println(hgetVal)
-	
+
 	return hgetVal
 }
 
 func Get(key string) string {
 	// Get
 	log.Printf("redis.Client.Get KEY: %v", key)
-    val, err := redis_client.Get(ctx, key).Result()
-    if err != nil {
-        fmt.Println("redis.Client.Get Error:", err)
-    }
+	val, err := redis_client.Get(ctx, key).Result()
+	if err != nil {
+		fmt.Println("redis.Client.Get Error:", err)
+	}
 	fmt.Println(val)
-	
+
 	return val
 }
 
-func ZAdd(key string, z *redis.Z)  {
+func ZAdd(key string, z *redis.Z) {
 	// Get
 	log.Printf("redis.Client.ZAdd KEY: %v", key)
-    err := redis_client.ZAdd(ctx, key, z).Err()
-    if err != nil {
-        fmt.Println("redis.Client.ZAdd Error:", err)
-    }
-	
+	err := redis_client.ZAdd(ctx, key, z).Err()
+	if err != nil {
+		fmt.Println("redis.Client.ZAdd Error:", err)
+	}
+
 }
 
 func SetNX(key string, value string) bool {
@@ -344,7 +365,7 @@ func SetNX(key string, value string) bool {
 	if err != nil {
 		fmt.Println("redis.Client.SetNX Error:", err)
 	}
-	
+
 	return res
 }
 
@@ -354,7 +375,6 @@ func DELETE(key string) {
 		fmt.Println("redis.Client.Del Error:", err)
 	}
 }
-
 
 func HashDelete(key string, field string) {
 	err := redis_client.HDel(ctx, key, field).Err()
@@ -382,7 +402,7 @@ func getStocks(product_id string, db *sql.DB) (int, error) {
 	return stock, nil
 }
 
-func updateStocks(product_id string, update_stocks int,  db *sql.DB) {
+func updateStocks(product_id string, update_stocks int, db *sql.DB) {
 	update_stock_query := fmt.Sprintf(UPDATE_RESTOCK_QUERY, update_stocks, product_id)
 	log.Printf("[WORKER] update stock query : %v", update_stock_query)
 	_, err := db.Exec(update_stock_query)
@@ -408,8 +428,29 @@ func (d Connect) ConnectDB() (*sql.DB, error) {
 	return db, nil
 }
 
+func init() {
+	prometheus.MustRegister(celeryReqs)
+}
+
+// for goroutin
+func exportMetrics() {
+	http.Handle("/metrics", promhttp.Handler())
+	http.ListenAndServe(":9100", nil)
+}
+
+// count
+func countReqs() {
+	celeryReqs.WithLabelValues("0", "OK").Add(1)
+}
+
+func countSends() {
+	celerySends.WithLabelValues("0", "OK").Add(1)
+}
 
 func main() {
+	// exec node-export service
+	go exportMetrics()
+
 	concurrency := 3
 	stripe.Key = SECRET_KEY_STAGING
 	cli, _ := gocelery.NewCeleryClient(
@@ -425,9 +466,9 @@ func main() {
 	)
 
 	redis_client = redis.NewClient(&redis.Options{
-        Addr:     "redis.mockten.db.com:6379",
-        Password: "", // no password set
-        DB:       0,  // use default DB
+		Addr:     "redis.mockten.db.com:6379",
+		Password: "", // no password set
+		DB:       0,  // use default DB
 	})
 
 	cli.Register("worker.execute", execute)
@@ -445,7 +486,7 @@ func main() {
 	ctx_local, cancel := context.WithTimeout(ctx, 5*time.Hour)
 	defer cancel()
 	ctx = ctx_local
-	
+
 	pong, err := redis_client.Ping(ctx).Result()
 	log.Println(pong, err)
 

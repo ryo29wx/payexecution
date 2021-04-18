@@ -7,3 +7,6 @@ Client ->  Broker(Redis) -> Consumer(Worker) -> Backend(Redis)
 # Please refer to
 https://github.com/gocelery/gocelery
 https://godoc.org/github.com/gocelery/gocelery
+
+# CircleCI
+https://app.circleci.com/pipelines/github/ryo29wx/Purchase_Request_Consumer
