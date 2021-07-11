@@ -12,37 +12,31 @@ import (
 	"strings"
 	"time"
 
-	"github.com/go-redis/redis"
+	"github.com/go-redis/redis/v8"
 	_ "github.com/go-sql-driver/mysql"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 
-	//github.com/gocelery/gocelery"
 	stripe "github.com/stripe/stripe-go"
 	paymentintent "github.com/stripe/stripe-go/paymentintent"
 	"github.com/yabamuro/gocelery"
 )
 
 const (
-	PRODUCTION_MODE            = false
-	TaskName                   = "worker.execute"
-	NotifyTaskName             = "worker.notification"
-	Queue                      = "payment"
-	Notification               = "notification"
-	PUBLISHABLE_KEY_STAGING    = "pk_test_j5fvxJmoN3TlTaNTgcATv0W000HRwOI317"
-	PUBLISHABLE_KEY_PRODUCTION = "*******"
-	SECRET_KEY_STAGING         = "sk_test_v4QrE3LoY9Cu2ki3IwQylABI00Hbes7WQT"
-	SECRET_KEY_PRODUCTION      = "*******"
-	UPDATE_RESTOCK_QUERY       = "UPDATE PRODUCT_INFO SET STOCK='%v' WHERE PRODUCT_ID='%v'"
-	GET_STOCK_QUERY            = "SELECT STOCK FROM PRODUCT_INFO WHERE PRODUCT_ID='%v'"
-	LAYOUT                     = "2006-01-02"
-	TRANSACTION_ID             = "TransactionID"
+	productionMode       = false
+	taskName             = "worker.execute"
+	notifyTaskName       = "worker.notification"
+	queue                = "payment"
+	notification         = "notification"
+	stgPubKey            = "pk_test_j5fvxJmoN3TlTaNTgcATv0W000HRwOI317"
+	prodPubKey           = "*******"
+	secStgKey            = "sk_test_v4QrE3LoY9Cu2ki3IwQylABI00Hbes7WQT"
+	secProdKey           = "*******"
+	updateRestockQuery   = "UPDATE PRODUCT_INFO SET STOCK='%v' WHERE PRODUCT_ID='%v'"
+	getStockQuery        = "SELECT STOCK FROM PRODUCT_INFO WHERE PRODUCT_ID='%v'"
+	layout               = "2006-01-02"
+	transactionFieldName = "transaction"
 )
-
-var celery_client *gocelery.CeleryClient
-var notify_client *gocelery.CeleryClient
-var redis_client *redis.Client
-var ctx context.Context
 
 var (
 	celeryReqs = prometheus.NewCounterVec(
@@ -59,35 +53,282 @@ var (
 		},
 		[]string{"code", "method"},
 	)
+
+	celeryClient *gocelery.CeleryClient
+	notifyClient *gocelery.CeleryClient
+	redisClient  *redis.Client
+	ctx          context.Context
 )
 
-type Connecter interface {
-	ConnectDB() (*sql.DB, error)
+func init() {
+	prometheus.MustRegister(celeryReqs)
 }
 
-type Controller interface {
-	HashSet(string, string, string)
-	HashMSet(string, string)
-	HashGet(string, string) string
-	Get(string) string
-	ZAdd(string, *redis.Z)
-	SetNX(string, string) bool
-	DELETE(string)
-	HashDelete(string, string)
+func main() {
+	// exec node-export service
+	go exportMetrics()
+
+	concurrency := 3
+	stripe.Key = secStgKey
+	cli, _ := gocelery.NewCeleryClient(
+		gocelery.NewRedisCeleryBroker("redis://redis.mockten.db.com:6379", queue),
+		gocelery.NewRedisCeleryBackend("redis://redis.mockten.db.com:6379"),
+		concurrency,
+	)
+
+	notifyClient, _ = gocelery.NewCeleryClient(
+		gocelery.NewRedisCeleryBroker("redis://redis.mockten.db.com:6379", notification),
+		gocelery.NewRedisCeleryBackend("redis://redis.mockten.db.com:6379"),
+		1,
+	)
+
+	redisClient = redis.NewClient(&redis.Options{
+		Addr:     "redis.mockten.db.com:6379",
+		Password: "", // no password set
+		DB:       0,  // use default DB
+	})
+
+	cli.Register("worker.execute", execute)
+
+	c := make(chan os.Signal, 1)
+	signal.Notify(c, os.Interrupt)
+
+	cli.StartWorker()
+	defer cli.StopWorker()
+	fmt.Printf("[WORKER] worker start: concurrency=%v\n", concurrency)
+
+	celeryClient = cli
+
+	ctx = context.Background()
+	ctxLocal, cancel := context.WithTimeout(ctx, 5*time.Hour)
+	defer cancel()
+	ctx = ctxLocal
+
+	pong, err := redisClient.Ping(ctx).Result()
+	log.Println(pong, err)
+
+	select {
+	case sig := <-c:
+		fmt.Println("worker stopped by signal:", sig)
+		return
+	}
 }
 
-type Connect struct{}
+func execute(transactionID string,
+	productID string,
+	customerid string,
+	dealStock int,
+	totalAmount int,
+	imageURL string,
+	category int,
+	productName string,
+	price int,
+	userID string,
+	cardid string,
+	address string,
+	retryCnt int,
+	restockFlag bool,
+	status string) int {
 
-type RedisController struct{}
+	countReqs()
+	sendReqLog(transactionID, productID, customerid, dealStock, totalAmount, userID, cardid, address, retryCnt, restockFlag, status)
+
+	// initialize redis controller struct
+	HashSet(redisClient, transactionID, transactionFieldName, status)
+
+	// Connect DB(MySQL)
+	db, err := connectDB()
+	if err != nil {
+		log.Printf("[WORKER] DB Connection ERROR!! in worker.go")
+		return 400
+	}
+	defer db.Close()
+
+	nowStocks, err := getStocks(productID, db)
+
+	if restockFlag {
+		log.Println("[WORKER] first restock route.")
+
+		insertStock := nowStocks + dealStock
+		updateStocks(productID, insertStock, db)
+		return 0
+	}
+
+	exclusion := SetNX(redisClient, "ProductID", productID)
+	if exclusion {
+		// debug
+		log.Println("[WORKER] exclusion route.")
+
+		if retryCnt > 10 {
+			_, err = notifyClient.Delay(notifyTaskName, address, "The number of retries has been exceeded.　Please try again in a few minutes.")
+			if err != nil {
+				log.Printf("[WORKER] FAILER notification failed.")
+			}
+			DELETE(redisClient, transactionID)
+		}
+
+		time.Sleep(10 * time.Second)
+		_, err = celeryClient.Delay(taskName, transactionID, productID, customerid, dealStock, totalAmount, imageURL, category, productName, price, userID, cardid, address, retryCnt+1, false, "start")
+		if err != nil {
+			log.Printf("[WORKER] Enqueue Error:%v(ProductId:%v,TransactionId:%v,RetryCount:%v)", err, productID, transactionID, retryCnt)
+			return 400
+		}
+	} else {
+		st := HashGet(redisClient, transactionID, transactionFieldName)
+
+		switch st {
+		case "start":
+			st = startTransaction(transactionID, userID, customerid, cardid, address, totalAmount, retryCnt)
+			if st == "" {
+				return 400
+			}
+			fallthrough
+
+		case "succeeded":
+			st, nowStocks = succeededTransaction(db, transactionID, productID, imageURL, productName, category, dealStock, price, restockFlag)
+			if st == "" || nowStocks == -1 {
+				return 400
+			}
+			fallthrough
+
+		case "settlement_done":
+			st = settleTransaction(transactionID, address, productName)
+			if st == "" {
+				return 400
+			}
+			fallthrough
+
+		case "notification_done":
+			notificationTransaction(transactionID)
+
+		default:
+			log.Println("[WORKER] Do Nothing...")
+			return 400
+
+		}
+
+		// mockten mock to restock function
+		nowStocks, err = getStocks(productID, db)
+		if nowStocks < 5 || err != nil {
+			log.Println("[WORKER] Change restock flg is TRUE!!")
+			_, err = celeryClient.Delay(taskName, transactionID, productID, customerid, 5, totalAmount, imageURL, category, productName, price, userID, cardid, address, retryCnt, true, "start")
+		}
+
+		countSends()
+		return 0
+	}
+
+	return 0
+}
+
+func startTransaction(transactionID, userID, customerid, cardid, address string, totalAmount, retryCnt int) string {
+	log.Println("[WORKER] start route.")
+	var status string
+
+	if len(userID) == 0 {
+		// TODO
+		// BankAPIの使用(transfer_money)
+	} else {
+		// use strinp
+		payid := requestPayment(customerid, totalAmount, address, retryCnt)
+		if payid == "" || len(payid) <= 0 {
+			log.Printf("[WORKER] payid is nil. customerid is [%v].", customerid)
+			return ""
+		}
+
+		status = confirmPayment(cardid, payid)
+		if status != "succeeded" {
+			log.Printf("[WORKER] Authentication not successful.  payid:[%v] | customerid:[%v].", payid, customerid)
+			return ""
+		}
+
+	}
+	// Overwrite the result of payment completion to status
+	log.Println("[WORKER] start route done.")
+	HashSet(redisClient, transactionID, transactionFieldName, status)
+	return status // succeeded
+}
+
+func succeededTransaction(db *sql.DB,
+	transactionID, productID, imageURL, productName string,
+	category, dealStock, price int,
+	restockFlag bool) (string, int) {
+	log.Println("[WORKER] succeeded route.")
+
+	nowStocks, err := getStocks(productID, db)
+	if err != nil {
+		return "", -1
+	}
+
+	if !restockFlag {
+		// Usually purchased
+		// update redis
+		t := timeToString(time.Now())
+		zaddKey := fmt.Sprintf("%v_%v", t, category)
+		zaddKey99 := fmt.Sprintf("%v_%v", t, "99")
+
+		z := &redis.Z{}
+		z.Score = float64(dealStock)
+		z.Member = productID
+		ZAdd(redisClient, zaddKey, z)
+		ZAdd(redisClient, zaddKey99, z)
+
+		// hsetValue := fmt.Sprintf("price:%v,imageURL:%v,name:%v", price, imageURL, productName)
+		HashSet(redisClient, productID, "price", price)
+		HashSet(redisClient, productID, "url", imageURL)
+		HashSet(redisClient, productID, "name", productName)
+
+		if nowStocks >= dealStock {
+			log.Println("[WORKER] update stock route.")
+			insertStock := nowStocks - dealStock
+			updateStocks(productID, insertStock, db)
+		} else {
+			log.Println("[WORKER] The amount customer want to purchase is higher than the number of items in stock.")
+			return "", -1
+		}
+	} else {
+		// Execute restock
+		// debug
+		log.Println("[WORKER] restock route.")
+
+		insertStock := nowStocks + dealStock
+		updateStocks(productID, insertStock, db)
+	}
+	status := "settlement_done"
+	HashSet(redisClient, transactionID, transactionFieldName, status)
+
+	return status, nowStocks
+}
+
+func settleTransaction(transactionID, address, productName string) string {
+	log.Println("[WORKER] settlement done route.")
+
+	_, err := notifyClient.Delay(notifyTaskName, address, fmt.Sprintf("The 'ProductName:[%v]' has been purchased.", productName))
+	if err != nil {
+		log.Printf("[WORKER] SUCCESS notification failed.")
+		return ""
+	}
+
+	status := "notification_done"
+	HashSet(redisClient, transactionID, transactionFieldName, status)
+	return status
+}
+
+func notificationTransaction(transactionID string) {
+	log.Println("[WORKER] notification done route.")
+
+	DELETE(redisClient, "ProductID")
+	DELETE(redisClient, transactionID)
+}
 
 /*
 Create a unique PaymentIntent in the order session.
 This is for later retracing the purchase history, etc.
 @see : https://stripe.com/docs/api/payment_intents
 */
-func requestPayment(customerid string, total_amount int, address string, retry_cnt int) (payid string) {
+func requestPayment(customerid string, totalAmount int, address string, retryCnt int) (payid string) {
 	payparams := &stripe.PaymentIntentParams{
-		Amount:   stripe.Int64(int64(total_amount) / 10),
+		Amount:   stripe.Int64(int64(totalAmount) / 10),
 		Customer: stripe.String(customerid),
 		Currency: stripe.String(string(stripe.CurrencyUSD)),
 		// Receipt_email: stripe.String(address),
@@ -107,8 +348,8 @@ func requestPayment(customerid string, total_amount int, address string, retry_c
 		}
 		//if v.Type().Field(i).Name == "Status" {
 		//	status := fmt.Sprintf("%v", v.Field(i).Interface())
-		//	if status != "requires_payment_method" && retry_cnt > 0 {
-		//		_, err = celery_client.Delay(TaskName, productID, customerid, dealStock, totalAmount, userID, cardid, address, retry_cnt+1, false, "start")
+		//	if status != "requires_payment_method" && retryCnt > 0 {
+		//		_, err = celery_client.Delay(TaskName, productID, customerid, dealStock, totalAmount, userID, cardid, address, retryCnt+1, false, "start")
 		//	}
 		//}
 	}
@@ -136,199 +377,53 @@ func confirmPayment(cardid string, payid string) (status string) {
 	return status
 }
 
-func execute(transaction_id string, product_id string, customerid string, deal_stock int, total_amount int, image_url string, category int, product_name string, price int, user_id string, cardid string, address string, retry_cnt int, restock_flag bool, status string) int {
-	countReqs()
-	sendReqLog(transaction_id, product_id, customerid, deal_stock, total_amount, user_id, cardid, address, retry_cnt, restock_flag, status)
+func sendReqLog(transactionID string,
+	productID string,
+	customerid string,
+	dealStock int,
+	totalAmount int,
+	userID string,
+	cardid string,
+	address string,
+	retryCnt int,
+	restockFlag bool,
+	status string) {
 
-	// initialize redis controller struct
-	HashSet(TRANSACTION_ID, transaction_id, status)
-
-	// Connect DB(MySQL)
-	conn_db := Connect{}
-	db, err := conn_db.ConnectDB()
-	if err != nil {
-		log.Printf("[WORKER] DB Connection ERROR!! in worker.go")
-		return 400
-	}
-	defer db.Close()
-
-	now_stocks, err := getStocks(product_id, db)
-
-	if restock_flag {
-		// Execute restock
-		// debug
-		log.Println("[WORKER] first restock route.")
-
-		insert_stock := now_stocks + deal_stock
-		updateStocks(product_id, insert_stock, db)
-		return 0
-	}
-
-	exclusion := SetNX("ProductID", product_id)
-	if exclusion {
-		// debug
-		log.Println("[WORKER] exclusion route.")
-
-		if retry_cnt > 10 {
-			_, err = notify_client.Delay(NotifyTaskName, address, "The number of retries has been exceeded.　Please try again in a few minutes.")
-			if err != nil {
-				log.Printf("[WORKER] FAILER notification failed.")
-			}
-			DELETE(transaction_id)
-		}
-
-		time.Sleep(10 * time.Second)
-		_, err = celery_client.Delay(TaskName, transaction_id, product_id, customerid, deal_stock, total_amount, image_url, category, product_name, price, user_id, cardid, address, retry_cnt+1, false, "start")
-		if err != nil {
-			log.Printf("[WORKER] Enqueue Error:%v(ProductId:%v,TransactionId:%v,RetryCount:%v)", err, product_id, transaction_id, retry_cnt)
-			return 400
-		}
-	} else {
-		// st := Get(transaction_id)
-		st := HashGet(TRANSACTION_ID, transaction_id)
-		switch st {
-		case "start":
-			// debug
-			log.Println("[WORKER] start route.")
-			if len(user_id) == 0 {
-				// TODO
-				// BankAPIの使用(transfer_money)
-			} else {
-				// use strinp
-				payid := requestPayment(customerid, total_amount, address, retry_cnt)
-				if payid == "" || len(payid) <= 0 {
-					log.Printf("[WORKER] payid is nil. customerid is [%v].", customerid)
-					return 400
-				}
-
-				status = confirmPayment(cardid, payid)
-				if status != "succeeded" {
-					log.Printf("[WORKER] Authentication not successful.  payid:[%v] | customerid:[%v].", payid, customerid)
-					return 400
-				}
-
-			}
-			// Overwrite the result of payment completion to status
-
-			// debug
-			log.Println("[WORKER] start done.")
-			HashSet(TRANSACTION_ID, transaction_id, status)
-			fallthrough
-
-		case "succeeded":
-			// debug
-			log.Println("[WORKER] succeeded route.")
-
-			now_stocks, err = getStocks(product_id, db)
-
-			if !restock_flag {
-				// Usually purchased
-				// update redis
-				t := timeToString(time.Now())
-				zaddKey := fmt.Sprintf("%v_%v", t, category)
-				zaddKey99 := fmt.Sprintf("%v_%v", t, "99")
-
-				z := &redis.Z{}
-				z.Score = float64(deal_stock)
-				z.Member = product_id
-				ZAdd(zaddKey, z)
-				ZAdd(zaddKey99, z)
-
-				// hsetValue := fmt.Sprintf("price:%v,image_url:%v,name:%v", price, image_url, product_name)
-				HashSet(product_id, "price", price)
-				HashSet(product_id, "url", image_url)
-				HashSet(product_id, "name", product_name)
-
-				if now_stocks >= deal_stock {
-					log.Println("[WORKER] update stock route.")
-					insert_stock := now_stocks - deal_stock
-					updateStocks(product_id, insert_stock, db)
-				} else {
-					log.Println("[WORKER] The amount customer want to purchase is higher than the number of items in stock.")
-					return 400
-				}
-			} else {
-				// Execute restock
-				// debug
-				log.Println("[WORKER] restock route.")
-
-				insert_stock := now_stocks + deal_stock
-				updateStocks(product_id, insert_stock, db)
-			}
-			status = "settlement_done"
-			HashSet(TRANSACTION_ID, transaction_id, status)
-			fallthrough
-
-		case "settlement_done":
-			// debug
-			log.Println("[WORKER] settlement done route.")
-
-			_, err = notify_client.Delay(NotifyTaskName, address, fmt.Sprintf("The 'ProductName:[%v]' has been purchased.", product_name))
-			if err != nil {
-				log.Printf("[WORKER] SUCCESS notification failed.")
-			}
-
-			status = "notification_done"
-			HashSet(TRANSACTION_ID, transaction_id, status)
-			fallthrough
-
-		case "notification_done":
-			// debug
-			log.Println("[WORKER] notification done route.")
-
-			// DELETE
-			DELETE("ProductID")
-			DELETE(transaction_id)
-
-		default:
-			log.Println("[WORKER] Do Nothing...")
-			return 400
-
-		}
-		now_stocks, err = getStocks(product_id, db)
-		if now_stocks < 5 || err != nil {
-			log.Println("[WORKER] Change restock flg is TRUE!!")
-			_, err = celery_client.Delay(TaskName, transaction_id, product_id, customerid, 5, total_amount, image_url, category, product_name, price, user_id, cardid, address, retry_cnt, true, "start")
-		}
-		countSends()
-		return 0
-	}
-
-	return 0
-}
-
-func sendReqLog(transaction_id string, product_id string, customerid string, deal_stock int, total_amount int, user_id string, cardid string, address string, retry_cnt int, restock_flag bool, status string) {
-	log.Printf("[WORKER] transaction_id:[%v] | product_id:[%v] | customerid:[%v] | deal_stock:[%v] | total_amount:[%v] | user_id:[%v] | cardid:[%v] | address:[%v] | retry_cnt:[%v] | restock_flag:[%v] | status:[%v]", transaction_id, product_id, customerid, deal_stock, total_amount, user_id, cardid, address, retry_cnt, restock_flag, status)
+	log.Printf("[WORKER] transactionID:[%v] | productID:[%v] | customerid:[%v] | dealStock:[%v] | totalAmount:[%v] | userID:[%v] | cardid:[%v] | address:[%v] | retryCnt:[%v] | restockFlag:[%v] | status:[%v]", transactionID, productID, customerid, dealStock, totalAmount, userID, cardid, address, retryCnt, restockFlag, status)
 }
 
 func timeToString(t time.Time) string {
-	str := t.Format(LAYOUT)
+	str := t.Format(layout)
 	str = strings.Replace(str, "-", "", -1)
 	return str
 }
 
-func HashSet(key string, field string, value interface{}) {
+// HashSet :redis hash-set
+// see : http://redis.shibu.jp/commandreference/hashes.html
+func HashSet(redisClient *redis.Client, key, field string, value interface{}) {
 	log.Printf("[WORKER] redis.Client.HSet KEY: %v FIELD: %v VALUE: %v", key, field, value)
-	err := redis_client.HSet(ctx, key, field, value).Err()
+	err := redisClient.HSet(ctx, key, field, value).Err()
 	if err != nil {
 		fmt.Println("[WORKER] redis.Client.HSet Error:", err)
 	}
 }
 
-func HashMSet(key string, value string) {
+// HashMSet :redis hash malti set
+func HashMSet(redisClient *redis.Client, key, value string) {
 	// Set
 	log.Printf("[WORKER] redis.Client.HMSet KEY: %v VALUE: %v", key, value)
-	err := redis_client.HMSet(ctx, key, value).Err()
+	err := redisClient.HMSet(ctx, key, value).Err()
 	if err != nil {
 		fmt.Println("[WORKER] redis.Client.HMSet Error:", err)
 	}
 }
 
-func HashGet(key string, field string) string {
+// HashGet :redis hash get
+func HashGet(redisClient *redis.Client, key, field string) string {
 	// Get
 	// HGet(key, field string) *StringCmd
 
-	hgetVal, err := redis_client.HGet(ctx, key, field).Result()
+	hgetVal, err := redisClient.HGet(ctx, key, field).Result()
 	if err != nil {
 		fmt.Println("[WORKER] redis.Client.HGet Error:", err)
 	}
@@ -337,10 +432,19 @@ func HashGet(key string, field string) string {
 	return hgetVal
 }
 
-func Get(key string) string {
+// HashDelete : redis hash delete
+func HashDelete(redisClient *redis.Client, key, field string) {
+	err := redisClient.HDel(ctx, key, field).Err()
+	if err != nil {
+		fmt.Println("redis.Client.HDel Error:", err)
+	}
+}
+
+// Get : redis get
+func Get(redisClient *redis.Client, key string) string {
 	// Get
 	log.Printf("redis.Client.Get KEY: %v", key)
-	val, err := redis_client.Get(ctx, key).Result()
+	val, err := redisClient.Get(ctx, key).Result()
 	if err != nil {
 		fmt.Println("redis.Client.Get Error:", err)
 	}
@@ -349,19 +453,29 @@ func Get(key string) string {
 	return val
 }
 
-func ZAdd(key string, z *redis.Z) {
+// DELETE : redis delete
+func DELETE(redisClient *redis.Client, key string) {
+	err := redisClient.Del(ctx, key).Err()
+	if err != nil {
+		fmt.Println("redis.Client.Del Error:", err)
+	}
+}
+
+// ZAdd : redis zadd
+func ZAdd(redisClient *redis.Client, key string, z *redis.Z) {
 	// Get
 	log.Printf("redis.Client.ZAdd KEY: %v", key)
-	err := redis_client.ZAdd(ctx, key, z).Err()
+	err := redisClient.ZAdd(ctx, key, z).Err()
 	if err != nil {
 		fmt.Println("redis.Client.ZAdd Error:", err)
 	}
 
 }
 
-func SetNX(key string, value string) bool {
+// SetNX : redis setnx
+func SetNX(redisClient *redis.Client, key, value string) bool {
 	log.Printf("redis.Client.SetNX KEY: %v VALUE: %v", key, value)
-	res, err := redis_client.SetNX(ctx, key, value, 0).Result()
+	res, err := redisClient.SetNX(ctx, key, value, 0).Result()
 	if err != nil {
 		fmt.Println("redis.Client.SetNX Error:", err)
 	}
@@ -369,50 +483,8 @@ func SetNX(key string, value string) bool {
 	return res
 }
 
-func DELETE(key string) {
-	err := redis_client.Del(ctx, key).Err()
-	if err != nil {
-		fmt.Println("redis.Client.Del Error:", err)
-	}
-}
-
-func HashDelete(key string, field string) {
-	err := redis_client.HDel(ctx, key, field).Err()
-	if err != nil {
-		fmt.Println("redis.Client.HDel Error:", err)
-	}
-}
-
-func getStocks(product_id string, db *sql.DB) (int, error) {
-	stock_query := fmt.Sprintf(GET_STOCK_QUERY, product_id)
-	stocksRows, err := db.Query(stock_query)
-	if err != nil {
-		log.Printf("[WORKER] SELECT stock Query Error: %v | Stock Query is: %v ", err, stock_query)
-		return 0, err
-	}
-	defer stocksRows.Close()
-
-	var stock int
-	for stocksRows.Next() {
-		if err := stocksRows.Scan(&stock); err != nil {
-			log.Printf("Stocks Scan Error: %v", err)
-			return 0, err
-		}
-	}
-	return stock, nil
-}
-
-func updateStocks(product_id string, update_stocks int, db *sql.DB) {
-	update_stock_query := fmt.Sprintf(UPDATE_RESTOCK_QUERY, update_stocks, product_id)
-	log.Printf("[WORKER] update stock query : %v", update_stock_query)
-	_, err := db.Exec(update_stock_query)
-	if err != nil {
-		log.Printf("restock UPDATE Query Error: %v | QUERY is: %v ", err, update_stock_query)
-	}
-}
-
 // connect DB(mysql)
-func (d Connect) ConnectDB() (*sql.DB, error) {
+func connectDB() (*sql.DB, error) {
 	user := os.Getenv("SECRET_USER")
 	pass := os.Getenv("SECRET_PASS")
 	sdb := os.Getenv("SECRET_DB")
@@ -428,8 +500,32 @@ func (d Connect) ConnectDB() (*sql.DB, error) {
 	return db, nil
 }
 
-func init() {
-	prometheus.MustRegister(celeryReqs)
+func getStocks(productID string, db *sql.DB) (int, error) {
+	stockQuery := fmt.Sprintf(getStockQuery, productID)
+	stocksRows, err := db.Query(stockQuery)
+	if err != nil {
+		log.Printf("[WORKER] SELECT stock Query Error: %v | Stock Query is: %v ", err, stockQuery)
+		return 0, err
+	}
+	defer stocksRows.Close()
+
+	var stock int
+	for stocksRows.Next() {
+		if err := stocksRows.Scan(&stock); err != nil {
+			log.Printf("Stocks Scan Error: %v", err)
+			return 0, err
+		}
+	}
+	return stock, nil
+}
+
+func updateStocks(productID string, updateStocks int, db *sql.DB) {
+	updateStockQuery := fmt.Sprintf(updateRestockQuery, updateStocks, productID)
+	log.Printf("[WORKER] update stock query : %v", updateStockQuery)
+	_, err := db.Exec(updateStockQuery)
+	if err != nil {
+		log.Printf("restock UPDATE Query Error: %v | QUERY is: %v ", err, updateStockQuery)
+	}
 }
 
 // for goroutin
@@ -440,59 +536,9 @@ func exportMetrics() {
 
 // count
 func countReqs() {
-	celeryReqs.WithLabelValues("0", "OK").Add(1)
+	celeryReqs.WithLabelValues("pay.execution", "accept").Add(1)
 }
 
 func countSends() {
-	celerySends.WithLabelValues("0", "OK").Add(1)
-}
-
-func main() {
-	// exec node-export service
-	go exportMetrics()
-
-	concurrency := 3
-	stripe.Key = SECRET_KEY_STAGING
-	cli, _ := gocelery.NewCeleryClient(
-		gocelery.NewRedisCeleryBroker("redis://redis.mockten.db.com:6379", Queue),
-		gocelery.NewRedisCeleryBackend("redis://redis.mockten.db.com:6379"),
-		concurrency,
-	)
-
-	notify_client, _ = gocelery.NewCeleryClient(
-		gocelery.NewRedisCeleryBroker("redis://redis.mockten.db.com:6379", Notification),
-		gocelery.NewRedisCeleryBackend("redis://redis.mockten.db.com:6379"),
-		1,
-	)
-
-	redis_client = redis.NewClient(&redis.Options{
-		Addr:     "redis.mockten.db.com:6379",
-		Password: "", // no password set
-		DB:       0,  // use default DB
-	})
-
-	cli.Register("worker.execute", execute)
-
-	c := make(chan os.Signal, 1)
-	signal.Notify(c, os.Interrupt)
-
-	cli.StartWorker()
-	defer cli.StopWorker()
-	fmt.Printf("[WORKER] worker start: concurrency=%v\n", concurrency)
-
-	celery_client = cli
-
-	ctx = context.Background()
-	ctx_local, cancel := context.WithTimeout(ctx, 5*time.Hour)
-	defer cancel()
-	ctx = ctx_local
-
-	pong, err := redis_client.Ping(ctx).Result()
-	log.Println(pong, err)
-
-	select {
-	case sig := <-c:
-		fmt.Println("worker stopped by signal:", sig)
-		return
-	}
+	celerySends.WithLabelValues("pay.execution", "send").Add(1)
 }
