@@ -54,14 +54,16 @@ var (
 		[]string{"code", "method"},
 	)
 
-	celeryClient *gocelery.CeleryClient
-	notifyClient *gocelery.CeleryClient
-	redisClient  *redis.Client
-	ctx          context.Context
+	celeryClient    *gocelery.CeleryClient
+	notifyClient    *gocelery.CeleryClient
+	redisClient     *redis.Client
+	ctx             context.Context
+	redisServerName string
 )
 
 func init() {
 	prometheus.MustRegister(celeryReqs)
+	redisServerName = os.Getenv("REDIS_SERVER")
 }
 
 func main() {
@@ -71,19 +73,19 @@ func main() {
 	concurrency := 3
 	stripe.Key = secStgKey
 	cli, _ := gocelery.NewCeleryClient(
-		gocelery.NewRedisCeleryBroker("redis://redis.mockten.db.com:6379", queue),
-		gocelery.NewRedisCeleryBackend("redis://redis.mockten.db.com:6379"),
+		gocelery.NewRedisCeleryBroker(redisServerName, queue),
+		gocelery.NewRedisCeleryBackend(redisServerName),
 		concurrency,
 	)
 
 	notifyClient, _ = gocelery.NewCeleryClient(
-		gocelery.NewRedisCeleryBroker("redis://redis.mockten.db.com:6379", notification),
-		gocelery.NewRedisCeleryBackend("redis://redis.mockten.db.com:6379"),
+		gocelery.NewRedisCeleryBroker(redisServerName, notification),
+		gocelery.NewRedisCeleryBackend(redisServerName),
 		1,
 	)
 
 	redisClient = redis.NewClient(&redis.Options{
-		Addr:     "redis.mockten.db.com:6379",
+		Addr:     redisServerName,
 		Password: "", // no password set
 		DB:       0,  // use default DB
 	})
@@ -154,7 +156,7 @@ func execute(transactionID string,
 		return 0
 	}
 
-	exclusion := SetNX(redisClient, "ProductID", productID)
+	exclusion := SetNX(redisClient, productID, "intrade")
 	if exclusion {
 		// debug
 		log.Println("[WORKER] exclusion route.")
@@ -164,7 +166,7 @@ func execute(transactionID string,
 			if err != nil {
 				log.Printf("[WORKER] FAILER notification failed.")
 			}
-			DELETE(redisClient, transactionID)
+			DELETE(redisClient, productID)
 		}
 
 		time.Sleep(10 * time.Second)
@@ -199,7 +201,7 @@ func execute(transactionID string,
 			fallthrough
 
 		case "notification_done":
-			notificationTransaction(transactionID)
+			notificationTransaction(transactionID, productID)
 
 		default:
 			log.Println("[WORKER] Do Nothing...")
@@ -314,10 +316,10 @@ func settleTransaction(transactionID, address, productName string) string {
 	return status
 }
 
-func notificationTransaction(transactionID string) {
+func notificationTransaction(transactionID, productID string) {
 	log.Println("[WORKER] notification done route.")
 
-	DELETE(redisClient, "ProductID")
+	DELETE(redisClient, productID)
 	DELETE(redisClient, transactionID)
 }
 
@@ -469,7 +471,6 @@ func ZAdd(redisClient *redis.Client, key string, z *redis.Z) {
 	if err != nil {
 		fmt.Println("redis.Client.ZAdd Error:", err)
 	}
-
 }
 
 // SetNX : redis setnx
