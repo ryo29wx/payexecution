@@ -65,17 +65,31 @@ jobs:
           webhook: '${SLACK_WEBHOOK}'
   test:
     docker:
-      - image: google/cloud-sdk:264.0.0
+      - image: circleci/golang:1.16
         environment:
-          GCR_REPO_PROD: gcr.io/go-portforio/search-item:circle-ci
+          SECRET_USER: root
+          SECRET_PASS: ""
+          SECRET_DB: cloudsql.mockten.db.com
+          SECRET_TABLE: 
+      - image: circleci/redis:6.0-alpine
+      - image: circleci/mysql:8.0
+        environment:
+          MYSQL_ALLOW_EMPTY_PASSWORD: true
+          MYSQL_DATABASE: cloudsql.mockten.db.com
+          MYSQL_HOST: 127.0.0.1
+          MYSQL_USER: root
     steps:
       - checkout
-      - setup_remote_docker:
-          version: 18.06.0-ce
       - run:
-          name: execute UT
           command: |
-            echo "execute UT"
+            go get github.com/yabamuro/gocelery &&
+            go get github.com/go-sql-driver/mysql &&
+            go get github.com/go-redis/redis/v8 &&
+            go get github.com/stripe/stripe-go &&
+            go get github.com/stripe/stripe-go/paymentintent &&
+            go get github.com/prometheus/client_golang/prometheus &&
+            go get github.com/prometheus/client_golang/prometheus/promhttp &&
+            go build worker.go
 
 workflows:
   version: 2
