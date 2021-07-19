@@ -100,6 +100,7 @@ workflows:
             branches:
               only:  # 以下の正規表現フィルターに一致するブランチのみが実行されます
                 - test
+                - develop
       - publish-test-container:
           requires:
           - test
