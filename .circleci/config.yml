@@ -90,7 +90,7 @@ jobs:
             go get github.com/stripe/stripe-go/paymentintent &&
             go get github.com/prometheus/client_golang/prometheus &&
             go get github.com/prometheus/client_golang/prometheus/promhttp &&
-            go build worker.go
+            go build src/worker.go
 
 workflows:
   version: 2
