@@ -90,7 +90,7 @@ jobs:
             go get github.com/prometheus/client_golang/prometheus &&
             go get github.com/prometheus/client_golang/prometheus/promhttp &&
             go build src/worker.go &&
-            go test -run _DB src/
+            go test -run _DB .
 
 workflows:
   version: 2
