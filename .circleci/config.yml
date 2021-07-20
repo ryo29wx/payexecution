@@ -68,14 +68,13 @@ jobs:
       - image: circleci/golang:1.16
         environment:
           SECRET_USER: root
-          SECRET_PASS: testpass
+          SECRET_PASS: ''
           SECRET_DB: cloudsql.mockten.db.com
-          SECRET_TABLE: 
+          SECRET_TABLE: mockten
       - image: circleci/redis:6.0-alpine
       - image: circleci/mysql:8.0
         environment:
           MYSQL_ALLOW_EMPTY_PASSWORD: true
-          MYSQL_ROOT_PASSWORD: testpass
           MYSQL_DATABASE: cloudsql.mockten.db.com
           MYSQL_HOST: 127.0.0.1
     working_directory: /go/src/
@@ -90,7 +89,8 @@ jobs:
             go get github.com/stripe/stripe-go/paymentintent &&
             go get github.com/prometheus/client_golang/prometheus &&
             go get github.com/prometheus/client_golang/prometheus/promhttp &&
-            go build src/worker.go
+            go build src/worker.go &&
+            go test -run _DB src/
 
 workflows:
   version: 2
