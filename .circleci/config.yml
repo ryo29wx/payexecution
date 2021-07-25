@@ -77,7 +77,7 @@ jobs:
           MYSQL_ALLOW_EMPTY_PASSWORD: true
           MYSQL_DATABASE: cloudsql.mockten.db.com
           # MYSQL_HOST: 127.0.0.1
-          MYSQL_USER: root
+          # MYSQL_USER: root
     working_directory: /go/src/
     steps:
       - checkout
