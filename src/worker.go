@@ -494,6 +494,11 @@ func connectDB() (*sql.DB, error) {
 	mySQLHost := fmt.Sprintf("%s:%s@tcp(%s)/%s", user, pass, sdb, table)
 	log.Printf("[WORKER] MySQL Host ... %v .", mySQLHost)
 	db, err := sql.Open("mysql", mySQLHost)
+	if err != nil {
+		log.Printf("[WORKER] sql.Open(): %s\n", err)
+		return nil, err
+	}
+
 	if err = db.Ping(); err != nil {
 		log.Printf("[WORKER] db.Ping(): %s\n", err)
 		return nil, err
