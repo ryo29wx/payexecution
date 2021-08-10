@@ -68,7 +68,7 @@ jobs:
       - image: circleci/golang:1.16
         environment:
           SECRET_USER: user
-          SECRET_PASS: ppassw0rd
+          SECRET_PASS: passw0rd
           SECRET_DB: cloudsql.mockten.db.com
           SECRET_TABLE: mockten
       - image: circleci/redis:6.0-alpine
