@@ -509,6 +509,7 @@ func connectDB() (*sql.DB, error) {
 
 func getStocks(productID string, db *sql.DB) (int, error) {
 	stockQuery := fmt.Sprintf(getStockQuery, productID)
+	log.Printf("[WORKER] get stock query : %v", stockQuery)
 	stocksRows, err := db.Query(stockQuery)
 	if err != nil {
 		log.Printf("[WORKER] SELECT stock Query Error: %v | Stock Query is: %v ", err, stockQuery)
