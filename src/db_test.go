@@ -41,9 +41,9 @@ func TestUpdateStocks_DB(t *testing.T) {
 		t.Fail()
 	}
 
-	_, err := db.Exec(insertQuery)
-	if err != nil {
-		fmt.Println(err)
+	_, err1 := db.Exec(insertQuery)
+	if err1 != nil {
+		fmt.Println(err1)
 		t.Fail()
 	}
 
