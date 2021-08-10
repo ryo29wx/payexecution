@@ -33,8 +33,6 @@ func init() {
 		panic(err)
 	}
 	db.Exec(query)
-	db.Exec(insertQuery)
-
 }
 func TestUpdateStocks_DB(t *testing.T) {
 	db, err := connectDB()
@@ -42,6 +40,14 @@ func TestUpdateStocks_DB(t *testing.T) {
 		fmt.Println(err)
 		t.Fail()
 	}
+
+	db.Exec(insertQuery)
+	res, err := getStocks("test_productID", db)
+	if res != 5 || err != nil {
+		fmt.Println(res, err)
+		t.Fail()
+	}
+	
 
 	updateStocks("test_productID", 10, db)
 	res, err := getStocks("test_productID", db)
