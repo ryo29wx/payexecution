@@ -79,7 +79,7 @@ jobs:
           MYSQL_PASSWORD: passw0rd
           MYSQL_ROOT_PASSWORD: rootpw
           MYSQL_DATABASE: cloudsql.mockten.db.com
-          MYSQL_HOST: 127.0.0.1
+          # MYSQL_HOST: 127.0.0.1
           MYSQL_USER: user
     working_directory: /go/src/
     steps:
