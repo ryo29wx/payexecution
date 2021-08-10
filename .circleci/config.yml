@@ -66,11 +66,11 @@ jobs:
   test:
     docker:
       - image: circleci/golang:1.16
-        #environment:
-        #  SECRET_USER: user
-        #  SECRET_PASS: passw0rd
-        #  SECRET_DB: cloudsql.mockten.db.com
-        #  SECRET_TABLE: mockten
+        environment:
+          SECRET_USER: user
+          SECRET_PASS: passw0rd
+          SECRET_DB: 127.0.0.1
+          SECRET_TABLE: mockten
       - image: circleci/redis:6.0-alpine
       - image: circleci/mysql:8.0
         command: mysqld --default-authentication-plugin=mysql_native_password
@@ -78,8 +78,8 @@ jobs:
           # MYSQL_ALLOW_EMPTY_PASSWORD: true
           MYSQL_PASSWORD: passw0rd
           MYSQL_ROOT_PASSWORD: rootpw
-          MYSQL_DATABASE: cloudsql.mockten.db.com
-          # MYSQL_HOST: 127.0.0.1
+          MYSQL_DATABASE: mockten
+          MYSQL_HOST: 127.0.0.1
           MYSQL_USER: user
     working_directory: /go/src/
     steps:
