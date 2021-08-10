@@ -75,7 +75,7 @@ func TestSettleTransaction_DB(t *testing.T) {
 	productName := "test_productName"
 
 	status := settleTransaction(transactionID, address, productName)
-	if status != nil {
+	if status != "notification_done" {
 		fmt.Println(status)
 		t.Fail()
 	}
