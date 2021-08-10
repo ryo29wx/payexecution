@@ -24,7 +24,9 @@ const (
 		"KEY `index03` (`category`)," +
 		"CONSTRAINT `seller_id` FOREIGN KEY (`seller_id`) REFERENCES `SELLER_INFO` (`seller_id`)" +
 		") ENGINE=InnoDB DEFAULT CHARSET=utf8;"
-	insertQuery = "INSERT INTO PRODUCT_INFO(product_id, product_name, seller_id, stock, category, price) VALUES ('test_productID', 'test_productName', 'test_sellerID', 5, 1, 100)"
+	insertProductQuery = "INSERT INTO PRODUCT_INFO(product_id, product_name, seller_id, stock, category, price) VALUES ('test_productID', 'test_productName', 'test_sellerID', 5, 1, 100)"
+	insertSellerQuery = "INSERT INTO SELLER_INFO(seller_id, seller_name) VALUES ('test_sellerID', 'test_sellerName')"
+
 )
 
 func init() {
@@ -40,8 +42,13 @@ func TestUpdateStocks_DB(t *testing.T) {
 		fmt.Println(err)
 		t.Fail()
 	}
+	_, err2 := db.Exec(insertSellerQuery)
+	if err2 != nil {
+		fmt.Println(err2)
+		t.Fail()
+	}
 
-	_, err1 := db.Exec(insertQuery)
+	_, err1 := db.Exec(insertProductQuery)
 	if err1 != nil {
 		fmt.Println(err1)
 		t.Fail()
