@@ -499,10 +499,10 @@ func connectDB() (*sql.DB, error) {
 		return nil, err
 	}
 
-	if err = db.Ping(); err != nil {
-		log.Printf("[WORKER] db.Ping(): %s\n", err)
-		return nil, err
-	}
+	//if err = db.Ping(); err != nil {
+	//	log.Printf("[WORKER] db.Ping(): %s\n", err)
+	//	return nil, err
+	//}
 
 	return db, nil
 }
