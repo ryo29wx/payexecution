@@ -24,7 +24,7 @@ const (
 		"KEY `index03` (`category`)," +
 		"CONSTRAINT `seller_id` FOREIGN KEY (`seller_id`) REFERENCES `SELLER_INFO` (`seller_id`)" +
 		") ENGINE=InnoDB DEFAULT CHARSET=utf8;"
-	insertQuery = "INSERT INTO PRODUCT_INFO(product_id, stock) VALUES ('test_productID', 5)"
+	insertQuery = "INSERT INTO PRODUCT_INFO(product_id, product_name, seller_id, stock, category, price, rate) VALUES ('test_productID', 'test_productName', 'test_sellerID', 5, 1, 100, 10)"
 )
 
 func init() {
