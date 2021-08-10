@@ -50,7 +50,7 @@ func TestUpdateStocks_DB(t *testing.T) {
 	
 
 	updateStocks("test_productID", 10, db)
-	res, err := getStocks("test_productID", db)
+	res, err = getStocks("test_productID", db)
 	if res != 10 || err != nil {
 		fmt.Println(res, err)
 		t.Fail()
