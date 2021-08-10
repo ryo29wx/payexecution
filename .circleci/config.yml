@@ -73,6 +73,7 @@ jobs:
           SECRET_TABLE: mockten
       - image: circleci/redis:6.0-alpine
       - image: circleci/mysql:8.0
+        command: mysqld --default-authentication-plugin=mysql_native_password
         environment:
           MYSQL_ALLOW_EMPTY_PASSWORD: true
           MYSQL_DATABASE: cloudsql.mockten.db.com
