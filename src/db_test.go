@@ -41,14 +41,18 @@ func TestUpdateStocks_DB(t *testing.T) {
 		t.Fail()
 	}
 
-	db.Exec(insertQuery)
+	_, err := db.Exec(insertQuery)
+	if err != nil {
+		fmt.Println(err)
+		t.Fail()
+	}
+
 	res, err := getStocks("test_productID", db)
 	if res != 5 || err != nil {
 		fmt.Println(res, err)
 		t.Fail()
 	}
 	
-
 	updateStocks("test_productID", 10, db)
 	res, err = getStocks("test_productID", db)
 	if res != 10 || err != nil {
