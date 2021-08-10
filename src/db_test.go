@@ -36,6 +36,7 @@ func init() {
 	}
 	db.Exec(query)
 }
+
 func TestUpdateStocks_DB(t *testing.T) {
 	db, err := connectDB()
 	if err != nil {
@@ -64,6 +65,18 @@ func TestUpdateStocks_DB(t *testing.T) {
 	res, err = getStocks("test_productID", db)
 	if res != 10 || err != nil {
 		fmt.Println(res, err)
+		t.Fail()
+	}
+}
+
+func TestSettleTransaction_DB(t *testing.T) {
+	transactionID := "test_transactionID"
+	address := "test_address"
+	productName := "test_productName"
+
+	status := settleTransaction(transactionID, address, productName)
+	if status != nil {
+		fmt.Println(status)
 		t.Fail()
 	}
 }
