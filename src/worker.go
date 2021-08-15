@@ -64,12 +64,13 @@ var (
 func init() {
 	prometheus.MustRegister(celeryReqs)
 	redisServerName = os.Getenv("REDIS_SERVER")
-	log.Println("[WORKER] init")
 }
 
 func main() {
 	// exec node-export service
+	log.Println("[WORKER] main1")
 	go exportMetrics()
+	log.Println("[WORKER] main2")
 
 	concurrency := 3
 	stripe.Key = secStgKey
