@@ -64,6 +64,7 @@ var (
 func init() {
 	prometheus.MustRegister(celeryReqs)
 	redisServerName = os.Getenv("REDIS_SERVER")
+	log.Println("[WORKER] init")
 }
 
 func main() {
@@ -304,6 +305,7 @@ func succeededTransaction(db *sql.DB,
 
 func settleTransaction(transactionID, address, productName string) string {
 	log.Println("[WORKER] settlement done route.")
+	log.Println(notifyClient)
 
 	_, err := notifyClient.Delay(notifyTaskName, address, fmt.Sprintf("The 'ProductName:[%v]' has been purchased.", productName))
 	if err != nil {
