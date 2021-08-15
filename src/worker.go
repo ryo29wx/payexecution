@@ -64,16 +64,7 @@ var (
 func init() {
 	prometheus.MustRegister(celeryReqs)
 	redisServerName = os.Getenv("REDIS_SERVER")
-}
-
-func main() {
-	// exec node-export service
-	log.Println("[WORKER] main1")
-	go exportMetrics()
-	log.Println("[WORKER] main2")
-
 	concurrency := 3
-	stripe.Key = secStgKey
 	cli, _ := gocelery.NewCeleryClient(
 		gocelery.NewRedisCeleryBroker(redisServerName, queue),
 		gocelery.NewRedisCeleryBackend(redisServerName),
@@ -93,23 +84,27 @@ func main() {
 	})
 
 	cli.Register("worker.execute", execute)
-
-	c := make(chan os.Signal, 1)
-	signal.Notify(c, os.Interrupt)
-
 	cli.StartWorker()
 	defer cli.StopWorker()
 	fmt.Printf("[WORKER] worker start: concurrency=%v\n", concurrency)
-
 	celeryClient = cli
+	pong, err := redisClient.Ping(ctx).Result()
+	log.Println(pong, err)
+}
+
+func main() {
+	// exec node-export service
+	go exportMetrics()
+
+	stripe.Key = secStgKey
+
+	c := make(chan os.Signal, 1)
+	signal.Notify(c, os.Interrupt)
 
 	ctx = context.Background()
 	ctxLocal, cancel := context.WithTimeout(ctx, 5*time.Hour)
 	defer cancel()
 	ctx = ctxLocal
-
-	pong, err := redisClient.Ping(ctx).Result()
-	log.Println(pong, err)
 
 	select {
 	case sig := <-c:
