@@ -88,6 +88,11 @@ func init() {
 	defer cli.StopWorker()
 	fmt.Printf("[WORKER] worker start: concurrency=%v\n", concurrency)
 	celeryClient = cli
+
+	ctx = context.Background()
+	ctxLocal, cancel := context.WithTimeout(ctx, 5*time.Hour)
+	defer cancel()
+	ctx = ctxLocal
 	pong, err := redisClient.Ping(ctx).Result()
 	log.Println(pong, err)
 }
@@ -100,11 +105,6 @@ func main() {
 
 	c := make(chan os.Signal, 1)
 	signal.Notify(c, os.Interrupt)
-
-	ctx = context.Background()
-	ctxLocal, cancel := context.WithTimeout(ctx, 5*time.Hour)
-	defer cancel()
-	ctx = ctxLocal
 
 	select {
 	case sig := <-c:
