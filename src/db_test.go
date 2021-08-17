@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"log"
 	"testing"
 )
 
@@ -25,8 +26,7 @@ const (
 		"CONSTRAINT `seller_id` FOREIGN KEY (`seller_id`) REFERENCES `SELLER_INFO` (`seller_id`)" +
 		") ENGINE=InnoDB DEFAULT CHARSET=utf8;"
 	insertProductQuery = "INSERT INTO PRODUCT_INFO(product_id, product_name, seller_id, stock, category, price) VALUES ('test_productID', 'test_productName', 'test_sellerID', 5, 1, 100)"
-	insertSellerQuery = "INSERT INTO SELLER_INFO(seller_id, seller_name) VALUES ('test_sellerID', 'test_sellerName')"
-
+	insertSellerQuery  = "INSERT INTO SELLER_INFO(seller_id, seller_name) VALUES ('test_sellerID', 'test_sellerName')"
 )
 
 func init() {
@@ -60,7 +60,7 @@ func TestUpdateStocks_DB(t *testing.T) {
 		fmt.Println(res, err)
 		t.Fail()
 	}
-	
+
 	updateStocks("test_productID", 10, db)
 	res, err = getStocks("test_productID", db)
 	if res != 10 || err != nil {
@@ -75,8 +75,49 @@ func TestSettleTransaction_DB(t *testing.T) {
 	productName := "test_productName"
 
 	status := settleTransaction(transactionID, address, productName)
-	if status != "notification_done" {
+	if status != "" {
 		fmt.Println(status)
 		t.Fail()
 	}
+}
+
+func TestNotificationTransaction_DB(t *testing.T) {
+	transactionID := "test_transactionID"
+	productID := "test_productID"
+
+	res := SetNX(redisClient, transactionID, "intrade")
+	if res == false {
+		log.Println(res)
+		t.Fail()
+	}
+	res = SetNX(redisClient, productID, "intrade")
+	if res == false {
+		log.Println(res)
+		t.Fail()
+	}
+	value := Get(redisClient, productID)
+
+	if value != "intrade" {
+		fmt.Println(value)
+		t.Fail()
+	}
+	value = Get(redisClient, transactionID)
+	if value != "intrade" {
+		fmt.Println(value)
+		t.Fail()
+	}
+
+	notificationTransaction(transactionID, productID)
+
+	value = Get(redisClient, productID)
+	if value != "" {
+		fmt.Println(value)
+		t.Fail()
+	}
+	value = Get(redisClient, transactionID)
+	if value != "" {
+		fmt.Println(value)
+		t.Fail()
+	}
+
 }
