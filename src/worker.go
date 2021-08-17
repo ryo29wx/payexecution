@@ -472,7 +472,7 @@ func ZAdd(redisClient *redis.Client, key string, z *redis.Z) {
 
 // SetNX : redis setnx
 func SetNX(redisClient *redis.Client, key, value string) bool {
-	log.Println("redis.Client.SetNX KEY: %v VALUE: %v", key, value)
+	log.Printf("redis.Client.SetNX KEY: %v VALUE: %v", key, value)
 	log.Println(ctx)
 
 	res, err := redisClient.SetNX(ctx, key, value, 0).Result()
