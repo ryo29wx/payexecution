@@ -301,7 +301,6 @@ func succeededTransaction(db *sql.DB,
 
 func settleTransaction(transactionID, address, productName string) string {
 	log.Println("[WORKER] settlement done route.")
-	log.Println(notifyClient)
 
 	_, err := notifyClient.Delay(notifyTaskName, address, fmt.Sprintf("The 'ProductName:[%v]' has been purchased.", productName))
 	if err != nil {
@@ -473,7 +472,9 @@ func ZAdd(redisClient *redis.Client, key string, z *redis.Z) {
 
 // SetNX : redis setnx
 func SetNX(redisClient *redis.Client, key, value string) bool {
-	log.Printf("redis.Client.SetNX KEY: %v VALUE: %v", key, value)
+	log.Println("redis.Client.SetNX KEY: %v VALUE: %v", key, value)
+	log.Println(ctx)
+
 	res, err := redisClient.SetNX(ctx, key, value, 0).Result()
 	if err != nil {
 		fmt.Println("redis.Client.SetNX Error:", err)
