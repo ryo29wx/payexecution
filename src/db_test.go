@@ -121,3 +121,153 @@ func TestNotificationTransaction_DB(t *testing.T) {
 	}
 
 }
+
+func TestSucceededTransaction_DB(t *testing.T) {
+	transactionID := "test_transactionID"
+	productID := "test_productID"
+	imageURL := "test_iamgeURL"
+	productName := "test_productName"
+	category := 1
+	dealStock := 2
+	price := 300
+	restockFlag := false
+
+	db, _ := connectDB()
+	res1, res2 := succeededTransaction(db, transactionID, productID, imageURL, productName, category, dealStock, price, restockFlag)
+	if res1 != "settlement_done" {
+		log.Println("error from succeededTransaction status")
+		log.Println(res1)
+		t.Fail()
+	} else if res2 != 2 {
+		log.Println("error from succeededTransaction newStock")
+		log.Println(res2)
+		t.Fail()
+	}
+
+	if HashGet(redisClient, productID, "price") != "300" {
+		log.Println("Error HashGet Price")
+		t.Fail()
+	} else if HashGet(redisClient, productID, "url") != imageURL {
+		log.Println("Error HashGet URL")
+		t.Fail()
+	} else if HashGet(redisClient, productID, "name") != productName {
+		log.Println("Error HashGet ProductName")
+		t.Fail()
+	}
+}
+
+func TestSucceededTransaction_getStockErr_DB(t *testing.T) {
+	transactionID := "test_transactionID"
+	productID := "test_productID_DoNoting"
+	imageURL := "test_iamgeURL"
+	productName := "test_productName"
+	category := 1
+	dealStock := 2
+	price := 300
+	restockFlag := false
+
+	db, _ := connectDB()
+	res1, res2 := succeededTransaction(db, transactionID, productID, imageURL, productName, category, dealStock, price, restockFlag)
+	if res1 != "" {
+		log.Println("error from succeededTransaction status")
+		log.Println(res1)
+		t.Fail()
+	} else if res2 != -1 {
+		log.Println("error from succeededTransaction newStock")
+		log.Println(res2)
+		t.Fail()
+	}
+}
+
+func TestSucceededTransaction_canotBuy_DB(t *testing.T) {
+	transactionID := "test_transactionID"
+	productID := "test_productID_DoNoting"
+	imageURL := "test_iamgeURL"
+	productName := "test_productName"
+	category := 1
+	dealStock := 100 // too large
+	price := 300
+	restockFlag := false
+
+	db, _ := connectDB()
+	res1, res2 := succeededTransaction(db, transactionID, productID, imageURL, productName, category, dealStock, price, restockFlag)
+	if res1 != "" {
+		log.Println("error from succeededTransaction status")
+		log.Println(res1)
+		t.Fail()
+	} else if res2 != -1 {
+		log.Println("error from succeededTransaction newStock")
+		log.Println(res2)
+		t.Fail()
+	}
+
+	// hashset will be executed
+	if HashGet(redisClient, productID, "price") != "300" {
+		log.Println("Error HashGet Price")
+		t.Fail()
+	} else if HashGet(redisClient, productID, "url") != imageURL {
+		log.Println("Error HashGet URL")
+		t.Fail()
+	} else if HashGet(redisClient, productID, "name") != productName {
+		log.Println("Error HashGet ProductName")
+		t.Fail()
+	}
+}
+
+func TestSucceededTransaction_restorck_DB(t *testing.T) {
+	transactionID := "test_transactionID"
+	productID := "test_productID_DoNoting"
+	imageURL := "test_iamgeURL"
+	productName := "test_productName"
+	category := 1
+	dealStock := 2
+	price := 300
+	restockFlag := false
+
+	db, _ := connectDB()
+	res1, res2 := succeededTransaction(db, transactionID, productID, imageURL, productName, category, dealStock, price, restockFlag)
+	if res1 != "settlement_done" {
+		log.Println("error from succeededTransaction status")
+		log.Println(res1)
+		t.Fail()
+	} else if res2 != 2 {
+		log.Println("error from succeededTransaction newStock")
+		log.Println(res2)
+		t.Fail()
+	}
+
+	// hashset will be executed
+	if HashGet(redisClient, productID, "price") != "300" {
+		log.Println("Error HashGet Price")
+		t.Fail()
+	} else if HashGet(redisClient, productID, "url") != imageURL {
+		log.Println("Error HashGet URL")
+		t.Fail()
+	} else if HashGet(redisClient, productID, "name") != productName {
+		log.Println("Error HashGet ProductName")
+		t.Fail()
+	}
+}
+
+func TestStartTransaction_DB(t *testing.T) {
+	transactionID := "test_transactionID"
+	userID := "test_userID"
+	customerid := "test_iamgeID"
+	cardid := "test_cardID"
+	address := "test_address"
+	totalAmount := 100
+	retryCnt := 3
+
+	res1 := startTransaction(transactionID, userID, customerid, cardid, address, totalAmount, retryCnt)
+	if res1 != "succeeded" {
+		log.Println("error from startTransaction status")
+		log.Println(res1)
+		t.Fail()
+	}
+
+	// hashset will be executed
+	if HashGet(redisClient, transactionID, transactionFieldName) != "succeeded" {
+		log.Println("Error HashGet Price")
+		t.Fail()
+	}
+}
