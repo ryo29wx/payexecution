@@ -90,9 +90,9 @@ func init() {
 	celeryClient = cli
 
 	ctx = context.Background()
-	ctxLocal, cancel := context.WithTimeout(ctx, 5*time.Hour)
-	defer cancel()
-	ctx = ctxLocal
+	 //ctxLocal, cancel := context.WithTimeout(ctx, 5*time.Hour)
+	//defer cancel()
+	//ctx = ctxLocal
 	pong, err := redisClient.Ping(ctx).Result()
 	log.Println(pong, err)
 }
