@@ -257,7 +257,7 @@ func TestStartTransaction_DB(t *testing.T) {
 
 	cardid := getCardID(customerid, cardToken)
 	address := "test_address"
-	totalAmount := 100
+	totalAmount := 10000
 	retryCnt := 3
 
 	res1 := startTransaction(transactionID, userID, customerid, cardid, address, totalAmount, retryCnt)
