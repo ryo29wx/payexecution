@@ -125,7 +125,7 @@ func TestNotificationTransaction_DB(t *testing.T) {
 func TestSucceededTransaction_DB(t *testing.T) {
 	transactionID := "test_transactionID"
 	productID := "test_productID"
-	imageURL := "test_iamgeURL"
+	imageURL := "test_imageURL"
 	productName := "test_productName"
 	category := 1
 	dealStock := 2
@@ -138,7 +138,7 @@ func TestSucceededTransaction_DB(t *testing.T) {
 		log.Println("error from succeededTransaction status")
 		log.Println(res1)
 		t.Fail()
-	} else if res2 != 2 {
+	} else if res2 != 10 {
 		log.Println("error from succeededTransaction newStock")
 		log.Println(res2)
 		t.Fail()
@@ -222,7 +222,7 @@ func TestSucceededTransaction_restorck_DB(t *testing.T) {
 	category := 1
 	dealStock := 2
 	price := 300
-	restockFlag := false
+	restockFlag := true
 
 	db, _ := connectDB()
 	res1, res2 := succeededTransaction(db, transactionID, productID, imageURL, productName, category, dealStock, price, restockFlag)
@@ -252,8 +252,10 @@ func TestSucceededTransaction_restorck_DB(t *testing.T) {
 func TestStartTransaction_DB(t *testing.T) {
 	transactionID := "test_transactionID"
 	userID := "test_userID"
-	customerid := "test_iamgeID"
-	cardid := "test_cardID"
+	cardToken := getCardToken("4242424242424242", "7", "2025", "123", "testUser")
+	customerid := getCutomerID("test@gmail.com")
+
+	cardid := getCardID(customerid, cardToken)
 	address := "test_address"
 	totalAmount := 100
 	retryCnt := 3
