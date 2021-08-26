@@ -230,7 +230,7 @@ func TestSucceededTransaction_restorck_DB(t *testing.T) {
 		log.Println("error from succeededTransaction status")
 		log.Println(res1)
 		t.Fail()
-	} else if res2 != 2 {
+	} else if res2 != 0 {
 		log.Println("error from succeededTransaction newStock")
 		log.Println(res2)
 		t.Fail()

@@ -90,18 +90,18 @@ func init() {
 	celeryClient = cli
 
 	ctx = context.Background()
-	 //ctxLocal, cancel := context.WithTimeout(ctx, 5*time.Hour)
+	//ctxLocal, cancel := context.WithTimeout(ctx, 5*time.Hour)
 	//defer cancel()
 	//ctx = ctxLocal
 	pong, err := redisClient.Ping(ctx).Result()
 	log.Println(pong, err)
+
+	stripe.Key = secStgKey
 }
 
 func main() {
 	// exec node-export service
 	go exportMetrics()
-
-	stripe.Key = secStgKey
 
 	c := make(chan os.Signal, 1)
 	signal.Notify(c, os.Interrupt)
