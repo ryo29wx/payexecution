@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"database/sql"
+	"flag"
 	"fmt"
 	"log"
 	"net/http"
@@ -20,6 +21,7 @@ import (
 	stripe "github.com/stripe/stripe-go"
 	paymentintent "github.com/stripe/stripe-go/paymentintent"
 	"github.com/yabamuro/gocelery"
+	"go.uber.org/zap"
 )
 
 const (
@@ -54,15 +56,52 @@ var (
 		[]string{"code", "method"},
 	)
 
-	celeryClient    *gocelery.CeleryClient
-	notifyClient    *gocelery.CeleryClient
-	redisClient     *redis.Client
-	ctx             context.Context
-	redisServerName string
+	celeryClient      *gocelery.CeleryClient
+	notifyClient      *gocelery.CeleryClient
+	redisClient       *redis.Client
+	ctx               context.Context
+	redisServerName   string
+	gomaxprocs        int
+	nworker           int
+	jobQueue          chan job
+	jobQueueBufferize int
+	logger            *zap.Logger
+	debug             bool
 )
+
+type requestparam struct {
+	transactionID string
+	productID     string
+	customerid    string
+	dealStock     int
+	totalAmount   int
+	imageURL      string
+	category      int
+	productName   string
+	price         int
+	userID        string
+	cardid        string
+	address       string
+	retryCnt      int
+	restockFlag   bool
+	status        string
+}
+
+type job struct {
+	Request  requestparam
+	Receiver chan []byte
+}
 
 func init() {
 	prometheus.MustRegister(celeryReqs)
+	flag.BoolVar(&debug, "debug", false, "debug mode flag")
+	flag.Parse()
+	if debug {
+		logger, _ = zap.NewDevelopment()
+	} else {
+		logger, _ = zap.NewProduction()
+	}
+	// REDIS INIT
 	redisServerName = os.Getenv("REDIS_SERVER")
 	concurrency := 3
 	cli, _ := gocelery.NewCeleryClient(
@@ -86,7 +125,7 @@ func init() {
 	cli.Register("worker.execute", execute)
 	cli.StartWorker()
 	defer cli.StopWorker()
-	fmt.Printf("[WORKER] worker start: concurrency=%v\n", concurrency)
+	log.Println(fmt.Printf("[WORKER] worker start: concurrency=%v\n", concurrency))
 	celeryClient = cli
 
 	ctx = context.Background()
@@ -97,6 +136,12 @@ func init() {
 	log.Println(pong, err)
 
 	stripe.Key = secStgKey
+
+	if debug {
+		logger, _ = zap.NewDevelopment()
+	} else {
+		logger, _ = zap.NewProduction()
+	}
 }
 
 func main() {
@@ -108,109 +153,104 @@ func main() {
 
 	select {
 	case sig := <-c:
-		fmt.Println("worker stopped by signal:", sig)
+		log.Println(fmt.Println("worker stopped by signal:", sig))
 		return
 	}
 }
 
-func execute(transactionID string,
-	productID string,
-	customerid string,
-	dealStock int,
-	totalAmount int,
-	imageURL string,
-	category int,
-	productName string,
-	price int,
-	userID string,
-	cardid string,
-	address string,
-	retryCnt int,
-	restockFlag bool,
-	status string) int {
+func execute(rp requestparam) int {
 
 	countReqs()
-	sendReqLog(transactionID, productID, customerid, dealStock, totalAmount, userID, cardid, address, retryCnt, restockFlag, status)
+	sendReqLog(rp)
 
 	// initialize redis controller struct
-	HashSet(redisClient, transactionID, transactionFieldName, status)
+	HashSet(redisClient, rp.transactionID, transactionFieldName, rp.status)
 
 	// Connect DB(MySQL)
 	db, err := connectDB()
 	if err != nil {
-		log.Printf("[WORKER] DB Connection ERROR!! in worker.go")
+		logger.Error(" DB Connection ERROR!! in worker.go:", zap.Error(err))
 		return 400
 	}
 	defer db.Close()
 
-	nowStocks, err := getStocks(productID, db)
+	nowStocks, err := getStocks(rp.productID, db)
 
-	if restockFlag {
-		log.Println("[WORKER] first restock route.")
+	if rp.restockFlag {
+		logger.Debug("first restock route.")
 
-		insertStock := nowStocks + dealStock
-		updateStocks(productID, insertStock, db)
+		insertStock := nowStocks + rp.dealStock
+		updateStocks(rp.productID, insertStock, db)
 		return 0
 	}
 
-	exclusion := SetNX(redisClient, productID, "intrade")
+	exclusion := SetNX(redisClient, rp.productID, "intrade")
 	if exclusion {
 		// debug
-		log.Println("[WORKER] exclusion route.")
+		logger.Debug("exclusion route.")
 
-		if retryCnt > 10 {
-			_, err = notifyClient.Delay(notifyTaskName, address, "The number of retries has been exceeded.　Please try again in a few minutes.")
+		if rp.retryCnt > 10 {
+			_, err = notifyClient.Delay(notifyTaskName, rp.address, "The number of retries has been exceeded.　Please try again in a few minutes.")
 			if err != nil {
-				log.Printf("[WORKER] FAILER notification failed.")
+				logger.Error("FAILER notification failed:", zap.Error(err))
 			}
-			DELETE(redisClient, productID)
+			DELETE(redisClient, rp.productID)
 		}
 
 		time.Sleep(10 * time.Second)
-		_, err = celeryClient.Delay(taskName, transactionID, productID, customerid, dealStock, totalAmount, imageURL, category, productName, price, userID, cardid, address, retryCnt+1, false, "start")
+		rp.retryCnt = rp.retryCnt + 1
+		rp.restockFlag = false
+		rp.status = "start"
+		_, err = celeryClient.Delay(taskName, rp)
 		if err != nil {
-			log.Printf("[WORKER] Enqueue Error:%v(ProductId:%v,TransactionId:%v,RetryCount:%v)", err, productID, transactionID, retryCnt)
+			logger.Error("Enqueue Error:", zap.Error(err),
+				zap.String("ProductId:", rp.productID),
+				zap.String("TransactionID:", rp.transactionID),
+				zap.Int("RetryCount:", rp.retryCnt))
 			return 400
 		}
 	} else {
-		st := HashGet(redisClient, transactionID, transactionFieldName)
+		st := HashGet(redisClient, rp.transactionID, transactionFieldName)
 
 		switch st {
 		case "start":
-			st = startTransaction(transactionID, userID, customerid, cardid, address, totalAmount, retryCnt)
+			st = startTransaction(rp.transactionID, rp.userID, rp.customerid, rp.cardid, rp.address, rp.totalAmount, rp.retryCnt)
 			if st == "" {
 				return 400
 			}
 			fallthrough
 
 		case "succeeded":
-			st, nowStocks = succeededTransaction(db, transactionID, productID, imageURL, productName, category, dealStock, price, restockFlag)
+			st, nowStocks = succeededTransaction(db, rp.transactionID, rp.productID, rp.imageURL, rp.productName, rp.category, rp.dealStock, rp.price, rp.restockFlag)
 			if st == "" || nowStocks == -1 {
 				return 400
 			}
 			fallthrough
 
 		case "settlement_done":
-			st = settleTransaction(transactionID, address, productName)
+			st = settleTransaction(rp.transactionID, rp.address, rp.productName)
 			if st == "" {
 				return 400
 			}
 			fallthrough
 
 		case "notification_done":
-			notificationTransaction(transactionID, productID)
+			notificationTransaction(rp.transactionID, rp.productID)
 
 		default:
-			log.Println("[WORKER] Do Nothing...")
+			logger.Debug("Do Nothing. :", zap.Any("request:", rp))
 			return 400
 
 		}
 
 		// mockten mock to restock function
-		nowStocks, err = getStocks(productID, db)
+		nowStocks, err = getStocks(rp.productID, db)
 		if nowStocks < 5 || err != nil {
-			log.Println("[WORKER] Change restock flg is TRUE!!")
-			_, err = celeryClient.Delay(taskName, transactionID, productID, customerid, 5, totalAmount, imageURL, category, productName, price, userID, cardid, address, retryCnt, true, "start")
+			logger.Debug("Change restock flg is TRUE!!")
+			rp.dealStock = 5
+			rp.restockFlag = true
+			rp.status = "start"
+			_, err = celeryClient.Delay(taskName, rp)
 		}
 
 		countSends()
@@ -221,7 +261,7 @@ func execute(transactionID string,
 }
 
 func startTransaction(transactionID, userID, customerid, cardid, address string, totalAmount, retryCnt int) string {
-	log.Println("[WORKER] start route.")
+	logger.Debug("startTransaction.", zap.String("tID", transactionID))
 	var status string
 
 	if len(userID) == 0 {
@@ -231,19 +271,20 @@ func startTransaction(transactionID, userID, customerid, cardid, address string,
 		// use strinp
 		payid := requestPayment(customerid, totalAmount, address, retryCnt)
 		if payid == "" || len(payid) <= 0 {
-			log.Printf("[WORKER] payid is nil. customerid is [%v].", customerid)
+			logger.Error("Payid is nil:", zap.String("Customerid:", customerid))
 			return ""
 		}
 
 		status = confirmPayment(cardid, payid)
 		if status != "succeeded" {
-			log.Printf("[WORKER] Authentication not successful.  payid:[%v] | customerid:[%v].", payid, customerid)
+			logger.Error("Authentication not successful:",
+				zap.String("Payid:", payid),
+				zap.String("Customerid:", customerid))
 			return ""
 		}
 
 	}
 	// Overwrite the result of payment completion to status
-	log.Println("[WORKER] start route done.")
 	HashSet(redisClient, transactionID, transactionFieldName, status)
 	return status // succeeded
 }
@@ -252,7 +293,7 @@ func succeededTransaction(db *sql.DB,
 	transactionID, productID, imageURL, productName string,
 	category, dealStock, price int,
 	restockFlag bool) (string, int) {
-	log.Println("[WORKER] succeeded route.")
+	logger.Debug("[WORKER] succeeded route.")
 
 	nowStocks, err := getStocks(productID, db)
 	if err != nil {
@@ -278,17 +319,17 @@ func succeededTransaction(db *sql.DB,
 		HashSet(redisClient, productID, "name", productName)
 
 		if nowStocks >= dealStock {
-			log.Println("[WORKER] update stock route.")
+			logger.Debug("update stock route.", zap.Int("nowStocks:", nowStocks), zap.Int("dealStock:", dealStock))
 			insertStock := nowStocks - dealStock
 			updateStocks(productID, insertStock, db)
 		} else {
-			log.Println("[WORKER] The amount customer want to purchase is higher than the number of items in stock.")
+			logger.Debug("TooMuchDealStock...", zap.Int("nowStocks:", nowStocks), zap.Int("dealStock:", dealStock))
 			return "", -1
 		}
 	} else {
 		// Execute restock
 		// debug
-		log.Println("[WORKER] restock route.")
+		logger.Debug("restock route.")
 
 		insertStock := nowStocks + dealStock
 		updateStocks(productID, insertStock, db)
@@ -300,11 +341,14 @@ func succeededTransaction(db *sql.DB,
 }
 
 func settleTransaction(transactionID, address, productName string) string {
-	log.Println("[WORKER] settlement done route.")
+	logger.Debug("settleTransaction.",
+		zap.String("transactionID:", transactionID),
+		zap.String("address:", address),
+		zap.String("productName:", productName))
 
 	_, err := notifyClient.Delay(notifyTaskName, address, fmt.Sprintf("The 'ProductName:[%v]' has been purchased.", productName))
 	if err != nil {
-		log.Printf("[WORKER] SUCCESS notification failed.")
+		logger.Error("notification failed.")
 		return ""
 	}
 
@@ -314,7 +358,9 @@ func settleTransaction(transactionID, address, productName string) string {
 }
 
 func notificationTransaction(transactionID, productID string) {
-	log.Println("[WORKER] notification done route.")
+	logger.Debug("notificationTransaction.",
+		zap.String("transactionID:", transactionID),
+		zap.String("productID:", productID))
 
 	DELETE(redisClient, productID)
 	DELETE(redisClient, transactionID)
@@ -337,7 +383,7 @@ func requestPayment(customerid string, totalAmount int, address string, retryCnt
 	}
 	obj, err := paymentintent.New(payparams)
 	if err != nil {
-		fmt.Printf("err: %s\n", err)
+		logger.Error("requestPayment failed.:", zap.Error(err))
 	}
 	// One paymentid is paid out in one order
 	v := reflect.ValueOf(*obj)
@@ -376,19 +422,8 @@ func confirmPayment(cardid string, payid string) (status string) {
 	return status
 }
 
-func sendReqLog(transactionID string,
-	productID string,
-	customerid string,
-	dealStock int,
-	totalAmount int,
-	userID string,
-	cardid string,
-	address string,
-	retryCnt int,
-	restockFlag bool,
-	status string) {
-
-	log.Printf("[WORKER] transactionID:[%v] | productID:[%v] | customerid:[%v] | dealStock:[%v] | totalAmount:[%v] | userID:[%v] | cardid:[%v] | address:[%v] | retryCnt:[%v] | restockFlag:[%v] | status:[%v]", transactionID, productID, customerid, dealStock, totalAmount, userID, cardid, address, retryCnt, restockFlag, status)
+func sendReqLog(rq requestparam) {
+	log.Println(fmt.Printf("[WORKER] payexection request param %v", rq))
 }
 
 func timeToString(t time.Time) string {
@@ -400,20 +435,23 @@ func timeToString(t time.Time) string {
 // HashSet :redis hash-set
 // see : http://redis.shibu.jp/commandreference/hashes.html
 func HashSet(redisClient *redis.Client, key, field string, value interface{}) {
-	log.Printf("[WORKER] redis.Client.HSet KEY: %v FIELD: %v VALUE: %v", key, field, value)
+	logger.Debug("HashSet.",
+		zap.String("key:", key),
+		zap.String("field:", field),
+		zap.Any("value:", value))
 	err := redisClient.HSet(ctx, key, field, value).Err()
 	if err != nil {
-		fmt.Println("[WORKER] redis.Client.HSet Error:", err)
+		logger.Error("redis.Client.HSet Error:", zap.Error(err))
 	}
 }
 
 // HashMSet :redis hash malti set
 func HashMSet(redisClient *redis.Client, key, value string) {
 	// Set
-	log.Printf("[WORKER] redis.Client.HMSet KEY: %v VALUE: %v", key, value)
+	logger.Debug("HashMSet.", zap.String("key:", key), zap.String("value:", value))
 	err := redisClient.HMSet(ctx, key, value).Err()
 	if err != nil {
-		fmt.Println("[WORKER] redis.Client.HMSet Error:", err)
+		logger.Error("redis.Client.HMSet Error:", zap.Error(err))
 	}
 }
 
@@ -421,63 +459,60 @@ func HashMSet(redisClient *redis.Client, key, value string) {
 func HashGet(redisClient *redis.Client, key, field string) string {
 	// Get
 	// HGet(key, field string) *StringCmd
-
+	logger.Debug("HashGet.", zap.String("key:", key), zap.String("field:", field))
 	hgetVal, err := redisClient.HGet(ctx, key, field).Result()
 	if err != nil {
-		fmt.Println("[WORKER] redis.Client.HGet Error:", err)
+		logger.Error("redis.Client.HGet Error:", zap.Error(err))
 	}
-	fmt.Println(hgetVal)
 
 	return hgetVal
 }
 
 // HashDelete : redis hash delete
 func HashDelete(redisClient *redis.Client, key, field string) {
+	logger.Debug("HashDelete.", zap.String("key:", key), zap.String("field:", field))
 	err := redisClient.HDel(ctx, key, field).Err()
 	if err != nil {
-		fmt.Println("redis.Client.HDel Error:", err)
+		logger.Error("redis.Client.HDel Error:", zap.Error(err))
 	}
 }
 
 // Get : redis get
 func Get(redisClient *redis.Client, key string) string {
 	// Get
-	log.Printf("redis.Client.Get KEY: %v", key)
+	logger.Debug("Get.", zap.String("key:", key))
 	val, err := redisClient.Get(ctx, key).Result()
 	if err != nil {
-		fmt.Println("redis.Client.Get Error:", err)
+		logger.Error("redis.Client.Get Error:", zap.Error(err))
 	}
-	fmt.Println(val)
 
 	return val
 }
 
 // DELETE : redis delete
 func DELETE(redisClient *redis.Client, key string) {
+	logger.Debug("DELETE.", zap.String("key:", key))
 	err := redisClient.Del(ctx, key).Err()
 	if err != nil {
-		fmt.Println("redis.Client.Del Error:", err)
+		logger.Error("redis.Client.Del Error:", zap.Error(err))
 	}
 }
 
 // ZAdd : redis zadd
 func ZAdd(redisClient *redis.Client, key string, z *redis.Z) {
-	// Get
-	log.Printf("redis.Client.ZAdd KEY: %v", key)
+	logger.Debug("ZAdd.", zap.String("key:", key), zap.Any("z:", z))
 	err := redisClient.ZAdd(ctx, key, z).Err()
 	if err != nil {
-		fmt.Println("redis.Client.ZAdd Error:", err)
+		logger.Error("redis.Client.ZAdd Error:", zap.Error(err))
 	}
 }
 
 // SetNX : redis setnx
 func SetNX(redisClient *redis.Client, key, value string) bool {
-	log.Printf("redis.Client.SetNX KEY: %v VALUE: %v", key, value)
-	log.Println(ctx)
-
+	logger.Debug("ZAdd.", zap.String("key:", key), zap.String("value:", value))
 	res, err := redisClient.SetNX(ctx, key, value, 0).Result()
 	if err != nil {
-		fmt.Println("redis.Client.SetNX Error:", err)
+		logger.Error("redis.Client.SetNX Error:", zap.Error(err))
 	}
 
 	return res
@@ -491,10 +526,10 @@ func connectDB() (*sql.DB, error) {
 	table := os.Getenv("SECRET_TABLE")
 
 	mySQLHost := fmt.Sprintf("%s:%s@tcp(%s)/%s", user, pass, sdb, table)
-	log.Printf("[WORKER] MySQL Host ... %v .", mySQLHost)
+	logger.Debug("connectDB.", zap.String("mysqlhost:", mySQLHost))
 	db, err := sql.Open("mysql", mySQLHost)
 	if err != nil {
-		log.Printf("[WORKER] sql.Open(): %s\n", err)
+		logger.Error("sql.Open():", zap.Error(err))
 		return nil, err
 	}
 
@@ -508,10 +543,12 @@ func connectDB() (*sql.DB, error) {
 
 func getStocks(productID string, db *sql.DB) (int, error) {
 	stockQuery := fmt.Sprintf(getStockQuery, productID)
-	log.Printf("[WORKER] get stock query : %v", stockQuery)
+	logger.Debug("getStocks.", zap.String("get stock query:", stockQuery))
 	stocksRows, err := db.Query(stockQuery)
 	if err != nil {
-		log.Printf("[WORKER] SELECT stock Query Error: %v | Stock Query is: %v ", err, stockQuery)
+		logger.Error("SELECT stock Query Error: ",
+			zap.Error(err),
+			zap.String("Stock Query is:", stockQuery))
 		return 0, err
 	}
 	defer stocksRows.Close()
@@ -519,7 +556,7 @@ func getStocks(productID string, db *sql.DB) (int, error) {
 	var stock int
 	for stocksRows.Next() {
 		if err := stocksRows.Scan(&stock); err != nil {
-			log.Printf("Stocks Scan Error: %v", err)
+			logger.Error("Stocks Scan Error: ", zap.Error(err))
 			return 0, err
 		}
 	}
@@ -528,10 +565,12 @@ func getStocks(productID string, db *sql.DB) (int, error) {
 
 func updateStocks(productID string, updateStocks int, db *sql.DB) {
 	updateStockQuery := fmt.Sprintf(updateRestockQuery, updateStocks, productID)
-	log.Printf("[WORKER] update stock query : %v", updateStockQuery)
+	logger.Debug("updateStocks.", zap.String("update stock query :", updateStockQuery))
 	_, err := db.Exec(updateStockQuery)
 	if err != nil {
-		log.Printf("restock UPDATE Query Error: %v | QUERY is: %v ", err, updateStockQuery)
+		logger.Error("Stocks Scan Error: ",
+			zap.Error(err),
+			zap.String(" |Query is:", updateStockQuery))
 	}
 }
 

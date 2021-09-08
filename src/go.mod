@@ -4,7 +4,6 @@ go 1.16
 
 require (
 	github.com/DataDog/sketches-go v0.0.0-20190923095040-43f19ad77ff7 // indirect
-	github.com/benbjohnson/clock v1.0.0 // indirect
 	github.com/cespare/xxhash v1.1.0 // indirect
 	github.com/go-redis/redis v6.15.9+incompatible
 	github.com/go-redis/redis/v8 v8.10.0 // indirect
@@ -17,6 +16,7 @@ require (
 	github.com/stripe/stripe-go v70.15.0+incompatible
 	github.com/yabamuro/gocelery v0.0.0-20210623123410-c83e42ae2636
 	go.opentelemetry.io/otel/internal/metric v0.21.0 // indirect
+	go.uber.org/zap v1.19.0 // indirect
 	google.golang.org/genproto v0.0.0-20191009194640-548a555dbc03 // indirect
 	google.golang.org/grpc v1.29.1 // indirect
 )
