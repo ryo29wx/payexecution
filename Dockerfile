@@ -1,4 +1,4 @@
-FROM golang:1.14
+FROM golang:1.14 as builder
 WORKDIR /
 COPY src .
 RUN go get github.com/yabamuro/gocelery && \
