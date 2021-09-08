@@ -15,4 +15,4 @@ RUN go get github.com/yabamuro/gocelery && \
 FROM alpine:latest
 RUN apk --no-cache add ca-certificates
 COPY --from=builder  /worker .
-CMD ["./worker"]
+CMD ["./worker -debug"]

@@ -11,6 +11,7 @@ import (
 	"os/signal"
 	"reflect"
 	"strings"
+	"testing"
 	"time"
 
 	"github.com/go-redis/redis/v8"
@@ -93,6 +94,7 @@ type job struct {
 }
 
 func init() {
+	testing.Init()
 	prometheus.MustRegister(celeryReqs)
 	flag.BoolVar(&debug, "debug", false, "debug mode flag")
 	flag.Parse()
