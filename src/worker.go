@@ -74,12 +74,12 @@ type requestparam struct {
 	transactionID string
 	productID     string
 	customerid    string
-	dealStock     int
-	totalAmount   int
+	dealStock     int32
+	totalAmount   int32
 	imageURL      string
-	category      int
+	category      int32
 	productName   string
-	price         int
+	price         int32
 	userID        string
 	cardid        string
 	address       string
@@ -181,7 +181,7 @@ func execute(rp requestparam) int {
 	if rp.restockFlag {
 		logger.Debug("first restock route.")
 
-		insertStock := nowStocks + rp.dealStock
+		insertStock := nowStocks + int(rp.dealStock)
 		updateStocks(rp.productID, insertStock, db)
 		return 0
 	}
@@ -216,14 +216,14 @@ func execute(rp requestparam) int {
 
 		switch st {
 		case "start":
-			st = startTransaction(rp.transactionID, rp.userID, rp.customerid, rp.cardid, rp.address, rp.totalAmount, rp.retryCnt)
+			st = startTransaction(rp.transactionID, rp.userID, rp.customerid, rp.cardid, rp.address, int(rp.totalAmount), rp.retryCnt)
 			if st == "" {
 				return 400
 			}
 			fallthrough
 
 		case "succeeded":
-			st, nowStocks = succeededTransaction(db, rp.transactionID, rp.productID, rp.imageURL, rp.productName, rp.category, rp.dealStock, rp.price, rp.restockFlag)
+			st, nowStocks = succeededTransaction(db, rp.transactionID, rp.productID, rp.imageURL, rp.productName, int(rp.category), int(rp.dealStock), int(rp.price), rp.restockFlag)
 			if st == "" || nowStocks == -1 {
 				return 400
 			}
