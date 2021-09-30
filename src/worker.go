@@ -118,11 +118,11 @@ func init() {
 		1,
 	)
 
-	redisClient = redis.NewClient(&redis.Options{
-		Addr:     redisServerName,
-		Password: "", // no password set
-		DB:       0,  // use default DB
-	})
+	//redisClient = redis.NewClient(&redis.Options{
+	//	Addr:     redisServerName,
+	//	Password: "", // no password set
+	//	DB:       0,  // use default DB
+	//})
 
 	cli.Register("worker.execute", execute)
 	cli.StartWorker()
@@ -134,8 +134,8 @@ func init() {
 	//ctxLocal, cancel := context.WithTimeout(ctx, 5*time.Hour)
 	//defer cancel()
 	//ctx = ctxLocal
-	pong, err := redisClient.Ping(ctx).Result()
-	log.Println(pong, err)
+	//pong, err := redisClient.Ping(ctx).Result()
+	//log.Println(pong, err)
 
 	stripe.Key = secStgKey
 
@@ -149,6 +149,15 @@ func init() {
 func main() {
 	// exec node-export service
 	go exportMetrics()
+
+	redisClient = redis.NewClient(&redis.Options{
+		Addr:     redisServerName,
+		Password: "", // no password set
+		DB:       0,  // use default DB
+	})
+	ctx = context.Background()
+	pong, err := redisClient.Ping(ctx).Result()
+	log.Println(pong, err)
 
 	c := make(chan os.Signal, 1)
 	signal.Notify(c, os.Interrupt)
