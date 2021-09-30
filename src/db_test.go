@@ -1,9 +1,12 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"log"
 	"testing"
+
+	"github.com/go-redis/redis/v8"
 )
 
 const (
@@ -29,24 +32,21 @@ const (
 	insertSellerQuery  = "INSERT INTO SELLER_INFO(seller_id, seller_name) VALUES ('test_sellerID', 'test_sellerName')"
 )
 
-var (
-	redisClient       *redis.Client
-	ctx               context.Context
-)
-
 func init() {
 	db, err := connectDB()
 	if err != nil {
 		panic(err)
 	}
 	db.Exec(query)
-
 	redisClient = redis.NewClient(&redis.Options{
 		Addr:     redisServerName,
 		Password: "", // no password set
 		DB:       0,  // use default DB
 	})
 	ctx = context.Background()
+	pong, err := redisClient.Ping(ctx).Result()
+	log.Println(pong, err)
+
 }
 
 func TestUpdateStocks_DB(t *testing.T) {
