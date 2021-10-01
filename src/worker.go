@@ -156,8 +156,13 @@ func main() {
 		DB:       0,  // use default DB
 	})
 	ctx = context.Background()
-	pong, err := redisClient.Ping(ctx).Result()
-	log.Println(pong, err)
+	for i := 0; i < 5; i++ {
+		pong, err := redisClient.Ping(ctx).Result()
+		log.Println(i, pong, err)
+		if err != nil {
+			break
+		}
+	}
 
 	c := make(chan os.Signal, 1)
 	signal.Notify(c, os.Interrupt)
