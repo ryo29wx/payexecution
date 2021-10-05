@@ -156,10 +156,11 @@ func main() {
 		DB:       0,  // use default DB
 	})
 	ctx = context.Background()
-	for i := 0; i < 5; i++ {
+	for i := 0; i < 10; i++ {
 		pong, err := redisClient.Ping(ctx).Result()
 		log.Println(i, pong, err)
-		if err != nil {
+		if err == nil {
+			log.Println("connection!!")
 			break
 		}
 	}
