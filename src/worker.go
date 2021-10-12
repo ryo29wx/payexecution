@@ -105,6 +105,23 @@ func init() {
 	}
 	// REDIS INIT
 	redisServerName = os.Getenv("REDIS_SERVER")
+	redisClient = redis.NewClient(&redis.Options{
+		Addr:     redisServerName,
+		Password: "", // no password set
+		DB:       0,  // use default DB
+	})
+	ctx = context.Background()
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Hour)
+	defer cancel()
+	for i := 0; i < 10; i++ {
+		pong, err := redisClient.Ping(ctx).Result()
+		log.Println(i, pong, err)
+		if err == nil {
+			log.Println("connection!!")
+			break
+		}
+	}
+
 	concurrency := 3
 	cli, _ := gocelery.NewCeleryClient(
 		gocelery.NewRedisCeleryBroker(redisServerName, queue),
@@ -149,23 +166,6 @@ func init() {
 func main() {
 	// exec node-export service
 	go exportMetrics()
-
-	redisClient = redis.NewClient(&redis.Options{
-		Addr:     redisServerName,
-		Password: "", // no password set
-		DB:       0,  // use default DB
-	})
-	ctx = context.Background()
-	ctx, cancel := context.WithTimeout(ctx, 5*time.Hour)
-	defer cancel()
-	for i := 0; i < 10; i++ {
-		pong, err := redisClient.Ping(ctx).Result()
-		log.Println(i, pong, err)
-		if err == nil {
-			log.Println("connection!!")
-			break
-		}
-	}
 
 	c := make(chan os.Signal, 1)
 	signal.Notify(c, os.Interrupt)
