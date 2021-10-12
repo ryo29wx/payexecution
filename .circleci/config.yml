@@ -112,8 +112,8 @@ jobs:
             go get github.com/prometheus/client_golang/prometheus/promhttp &&
             go get go.uber.org/zap &&
             go build src/worker.go &&
-            cd src/ &&
-            go test -run _DB . 
+            cd src/
+          # go test -run _DB . 
 
 workflows:
   version: 2

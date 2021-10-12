@@ -156,6 +156,8 @@ func main() {
 		DB:       0,  // use default DB
 	})
 	ctx = context.Background()
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Hour)
+	defer cancel()
 	for i := 0; i < 10; i++ {
 		pong, err := redisClient.Ping(ctx).Result()
 		log.Println(i, pong, err)
