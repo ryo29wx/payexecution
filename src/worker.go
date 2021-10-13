@@ -105,35 +105,26 @@ func init() {
 	}
 	// REDIS INIT
 	redisServerName = os.Getenv("REDIS_SERVER")
-	redisClient = redis.NewClient(&redis.Options{
-		Addr:     redisServerName,
-		Password: "", // no password set
-		DB:       0,  // use default DB
-	})
-	ctx = context.Background()
-	ctx, cancel := context.WithTimeout(ctx, 5*time.Hour)
-	defer cancel()
-	for i := 0; i < 10; i++ {
-		pong, err := redisClient.Ping(ctx).Result()
-		log.Println(i, pong, err)
-		if err == nil {
-			log.Println("connection!!")
-			break
-		}
-	}
-
 	concurrency := 3
-	cli, _ := gocelery.NewCeleryClient(
+	cli, err := gocelery.NewCeleryClient(
 		gocelery.NewRedisCeleryBroker(redisServerName, queue),
 		gocelery.NewRedisCeleryBackend(redisServerName),
 		concurrency,
 	)
 
-	notifyClient, _ = gocelery.NewCeleryClient(
+	if err != nil {
+		log.Println("Execute Celery doesnt connect Redis. [", err, "]")
+	}
+
+	notifyClient, err = gocelery.NewCeleryClient(
 		gocelery.NewRedisCeleryBroker(redisServerName, notification),
 		gocelery.NewRedisCeleryBackend(redisServerName),
 		1,
 	)
+
+	if err != nil {
+		log.Println("Notification Celery doesnt connect Redis. [", err, "]")
+	}
 
 	//redisClient = redis.NewClient(&redis.Options{
 	//	Addr:     redisServerName,
