@@ -96,6 +96,8 @@ type job struct {
 func init() {
 	testing.Init()
 	prometheus.MustRegister(celeryReqs)
+
+	// Setting Flag for Logging
 	flag.BoolVar(&debug, "debug", false, "debug mode flag")
 	flag.Parse()
 	if debug {
@@ -103,7 +105,8 @@ func init() {
 	} else {
 		logger, _ = zap.NewProduction()
 	}
-	// REDIS INIT
+
+	// Celery INIT
 	redisServerName = os.Getenv("REDIS_SERVER")
 	concurrency := 3
 	cli, err := gocelery.NewCeleryClient(
@@ -111,7 +114,7 @@ func init() {
 		gocelery.NewRedisCeleryBackend(redisServerName),
 		concurrency,
 	)
-
+	log.Println("[DEBUG] Celery Client [", cli, "]")
 	if err != nil {
 		log.Println("Execute Celery doesnt connect Redis. [", err, "]")
 	}
@@ -121,16 +124,10 @@ func init() {
 		gocelery.NewRedisCeleryBackend(redisServerName),
 		1,
 	)
-
+	log.Println("[DEBUG] Notification Client [", notifyClient, "]")
 	if err != nil {
 		log.Println("Notification Celery doesnt connect Redis. [", err, "]")
 	}
-
-	//redisClient = redis.NewClient(&redis.Options{
-	//	Addr:     redisServerName,
-	//	Password: "", // no password set
-	//	DB:       0,  // use default DB
-	//})
 
 	cli.Register("worker.execute", execute)
 	cli.StartWorker()
@@ -138,20 +135,27 @@ func init() {
 	log.Println(fmt.Printf("[WORKER] worker start: concurrency=%v\n", concurrency))
 	celeryClient = cli
 
+	// go-redis init
+	redisClient = redis.NewClient(&redis.Options{
+		Addr:     redisServerName,
+		Password: "", // no password set
+		DB:       0,  // use default DB
+	})
+
 	ctx = context.Background()
-	//ctxLocal, cancel := context.WithTimeout(ctx, 5*time.Hour)
-	//defer cancel()
-	//ctx = ctxLocal
-	//pong, err := redisClient.Ping(ctx).Result()
-	//log.Println(pong, err)
+	ctxLocal, cancel := context.WithTimeout(ctx, 5*time.Hour)
+	defer cancel()
+	ctx = ctxLocal
+	for i := 0; i < 10; i++ {
+		pong, err := redisClient.Ping(ctx).Result()
+		log.Println(i, pong, err)
+		if err == nil {
+			log.Println("connection!!")
+			break
+		}
+	}
 
 	stripe.Key = secStgKey
-
-	if debug {
-		logger, _ = zap.NewDevelopment()
-	} else {
-		logger, _ = zap.NewProduction()
-	}
 }
 
 func main() {
