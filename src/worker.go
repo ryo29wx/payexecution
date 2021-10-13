@@ -106,6 +106,13 @@ func init() {
 		logger, _ = zap.NewProduction()
 	}
 
+	stripe.Key = secStgKey
+}
+
+func main() {
+	// exec node-export service
+	go exportMetrics()
+	
 	// Celery INIT
 	redisServerName = os.Getenv("REDIS_SERVER")
 	redisServerNameForCelery := "redis://" + redisServerName
@@ -156,14 +163,6 @@ func init() {
 			break
 		}
 	}
-
-	stripe.Key = secStgKey
-}
-
-func main() {
-	// exec node-export service
-	go exportMetrics()
-
 	c := make(chan os.Signal, 1)
 	signal.Notify(c, os.Interrupt)
 
