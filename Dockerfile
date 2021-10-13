@@ -1,4 +1,4 @@
-FROM golang:1.14 as builder
+FROM golang:1.15.2 as builder
 WORKDIR /
 COPY src .
 RUN go get github.com/yabamuro/gocelery && \
@@ -12,7 +12,7 @@ RUN go get github.com/yabamuro/gocelery && \
     go build worker.go
 
 # As runner
-FROM alpine:latest
+FROM alpine:3.11
 RUN apk --no-cache add ca-certificates
 RUN mkdir /lib64
 RUN ln -s /lib/libc.musl-x86_64.so.1 /lib64/ld-linux-x86-64.so.2
