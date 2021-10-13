@@ -108,10 +108,12 @@ func init() {
 
 	// Celery INIT
 	redisServerName = os.Getenv("REDIS_SERVER")
+	redisServerNameForCelery := "redis://" + redisServerName
+	log.Println("[DEBUG] redisServerNameForCelery [", redisServerNameForCelery, "]")
 	concurrency := 3
 	cli, err := gocelery.NewCeleryClient(
-		gocelery.NewRedisCeleryBroker(redisServerName, queue),
-		gocelery.NewRedisCeleryBackend(redisServerName),
+		gocelery.NewRedisCeleryBroker(redisServerNameForCelery, queue),
+		gocelery.NewRedisCeleryBackend(redisServerNameForCelery),
 		concurrency,
 	)
 	log.Println("[DEBUG] Celery Client [", cli, "]")
@@ -120,8 +122,8 @@ func init() {
 	}
 
 	notifyClient, err = gocelery.NewCeleryClient(
-		gocelery.NewRedisCeleryBroker(redisServerName, notification),
-		gocelery.NewRedisCeleryBackend(redisServerName),
+		gocelery.NewRedisCeleryBroker(redisServerNameForCelery, notification),
+		gocelery.NewRedisCeleryBackend(redisServerNameForCelery),
 		1,
 	)
 	log.Println("[DEBUG] Notification Client [", notifyClient, "]")
