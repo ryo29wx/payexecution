@@ -114,7 +114,7 @@ func main() {
 	go exportMetrics()
 	
 	// Celery INIT
-	redisServerName = os.Getenv("REDIS_SERVER")
+	redisServerName := fmt.Sprintf("%s:%s", os.Getenv("REDIS_SERVICE_HOST"), os.Getenv("REDIS_SERVICE_PORT"))
 	redisServerNameForCelery := "redis://" + redisServerName
 	log.Println("[DEBUG] redisServerNameForCelery [", redisServerNameForCelery, "]")
 	concurrency := 3
