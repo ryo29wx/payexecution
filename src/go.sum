@@ -164,6 +164,8 @@ github.com/stripe/stripe-go v70.15.0+incompatible h1:hNML7M1zx8RgtepEMlxyu/FpVPr
 github.com/stripe/stripe-go v70.15.0+incompatible/go.mod h1:A1dQZmO/QypXmsL0T8axYZkSN/uA/T/A64pfKdBAMiY=
 github.com/yabamuro/gocelery v0.0.0-20210623123410-c83e42ae2636 h1:WOsObM0jjsT9F89/p+7QKvsEoXKAUEG4Wn55DYm95ts=
 github.com/yabamuro/gocelery v0.0.0-20210623123410-c83e42ae2636/go.mod h1:+lnzrLcwoDlcG1M3zVACAScis9AnG6IDoNSD/RpkBSA=
+github.com/yabamuro/gocelery v0.0.0-20211208085135-13cb13a1a656 h1:aZlNX4eFw9nO5Dew5JtoAy+rRlWubguwneqS7CU0t9E=
+github.com/yabamuro/gocelery v0.0.0-20211208085135-13cb13a1a656/go.mod h1:+lnzrLcwoDlcG1M3zVACAScis9AnG6IDoNSD/RpkBSA=
 github.com/yuin/goldmark v1.2.1/go.mod h1:3hX8gzYuyVAZsxl0MRgGTJEmQBFcNTphYh9decYSb74=
 go.opentelemetry.io/otel v0.19.0/go.mod h1:j9bF567N9EfomkSidSfmMwIwIBuP37AMAIzVW85OxSg=
 go.opentelemetry.io/otel v0.20.0/go.mod h1:Y3ugLH2oa81t5QO+Lty+zXf8zC9L26ax4Nzoxm/dooo=
