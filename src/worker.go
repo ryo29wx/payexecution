@@ -70,26 +70,26 @@ var (
 	debug             bool
 )
 
-type requestparam struct {
-	transactionID string
-	productID     string
-	customerid    string
-	dealStock     int32
-	totalAmount   int32
-	imageURL      string
-	category      int32
-	productName   string
-	price         int32
-	userID        string
-	cardid        string
-	address       string
-	retryCnt      int
-	restockFlag   bool
-	status        string
+type Requestparam struct {
+	TransactionID string
+	ProductID     string
+	Customerid    string
+	DealStock     int32
+	TotalAmount   int32
+	ImageURL      string
+	Category      int32
+	ProductName   string
+	Price         int32
+	UserID        string
+	Cardid        string
+	Address       string
+	RetryCnt      int
+	RestockFlag   bool
+	Status        string
 }
 
 type job struct {
-	Request  requestparam
+	Request  Requestparam
 	Receiver chan []byte
 }
 
@@ -173,13 +173,13 @@ func main() {
 	}
 }
 
-func execute(rp requestparam) int {
+func execute(rp Requestparam) int {
 
 	countReqs()
 	sendReqLog(rp)
 
 	// initialize redis controller struct
-	HashSet(redisClient, rp.transactionID, transactionFieldName, rp.status)
+	HashSet(redisClient, rp.TransactionID, transactionFieldName, rp.Status)
 
 	// Connect DB(MySQL)
 	db, err := connectDB()
@@ -189,68 +189,68 @@ func execute(rp requestparam) int {
 	}
 	defer db.Close()
 
-	nowStocks, err := getStocks(rp.productID, db)
+	nowStocks, err := getStocks(rp.ProductID, db)
 
-	if rp.restockFlag {
+	if rp.RestockFlag {
 		logger.Debug("first restock route.")
 
-		insertStock := nowStocks + int(rp.dealStock)
-		updateStocks(rp.productID, insertStock, db)
+		insertStock := nowStocks + int(rp.DealStock)
+		updateStocks(rp.ProductID, insertStock, db)
 		return 0
 	}
 
-	exclusion := SetNX(redisClient, rp.productID, "intrade")
+	exclusion := SetNX(redisClient, rp.ProductID, "intrade")
 	if exclusion {
 		// debug
 		logger.Debug("exclusion route.")
 
-		if rp.retryCnt > 10 {
-			_, err = notifyClient.Delay(notifyTaskName, rp.address, "The number of retries has been exceeded.　Please try again in a few minutes.")
+		if rp.RetryCnt > 10 {
+			_, err = notifyClient.Delay(notifyTaskName, rp.Address, "The number of retries has been exceeded.　Please try again in a few minutes.")
 			if err != nil {
 				logger.Error("FAILER notification failed:", zap.Error(err))
 			}
-			DELETE(redisClient, rp.productID)
+			DELETE(redisClient, rp.ProductID)
 		}
 
 		time.Sleep(10 * time.Second)
-		rp.retryCnt = rp.retryCnt + 1
-		rp.restockFlag = false
-		rp.status = "start"
+		rp.RetryCnt = rp.RetryCnt + 1
+		rp.RestockFlag = false
+		rp.Status = "start"
 		_, err = celeryClient.Delay(taskName, rp)
 		if err != nil {
 			logger.Error("Enqueue Error:", zap.Error(err),
-				zap.String("ProductId:", rp.productID),
-				zap.String("TransactionID:", rp.transactionID),
-				zap.Int("RetryCount:", rp.retryCnt))
+				zap.String("ProductId:", rp.ProductID),
+				zap.String("TransactionID:", rp.TransactionID),
+				zap.Int("RetryCount:", rp.RetryCnt))
 			return 400
 		}
 	} else {
-		st := HashGet(redisClient, rp.transactionID, transactionFieldName)
+		st := HashGet(redisClient, rp.TransactionID, transactionFieldName)
 
 		switch st {
 		case "start":
-			st = startTransaction(rp.transactionID, rp.userID, rp.customerid, rp.cardid, rp.address, int(rp.totalAmount), rp.retryCnt)
+			st = startTransaction(rp.TransactionID, rp.UserID, rp.Customerid, rp.Cardid, rp.Address, int(rp.TotalAmount), rp.RetryCnt)
 			if st == "" {
 				return 400
 			}
 			fallthrough
 
 		case "succeeded":
-			st, nowStocks = succeededTransaction(db, rp.transactionID, rp.productID, rp.imageURL, rp.productName, int(rp.category), int(rp.dealStock), int(rp.price), rp.restockFlag)
+			st, nowStocks = succeededTransaction(db, rp.TransactionID, rp.ProductID, rp.ImageURL, rp.ProductName, int(rp.Category), int(rp.DealStock), int(rp.Price), rp.RestockFlag)
 			if st == "" || nowStocks == -1 {
 				return 400
 			}
 			fallthrough
 
 		case "settlement_done":
-			st = settleTransaction(rp.transactionID, rp.address, rp.productName)
+			st = settleTransaction(rp.TransactionID, rp.Address, rp.ProductName)
 			if st == "" {
 				return 400
 			}
 			fallthrough
 
 		case "notification_done":
-			notificationTransaction(rp.transactionID, rp.productID)
+			notificationTransaction(rp.TransactionID, rp.ProductID)
 
 		default:
 			logger.Debug("Do Nothing. :", zap.Any("request:", rp))
@@ -259,12 +259,12 @@ func execute(rp requestparam) int {
 		}
 
 		// mockten mock to restock function
-		nowStocks, err = getStocks(rp.productID, db)
+		nowStocks, err = getStocks(rp.ProductID, db)
 		if nowStocks < 5 || err != nil {
 			logger.Debug("Change restock flg is TRUE!!")
-			rp.dealStock = 5
-			rp.restockFlag = true
-			rp.status = "start"
+			rp.DealStock = 5
+			rp.RestockFlag = true
+			rp.Status = "start"
 			_, err = celeryClient.Delay(taskName, rp)
 		}
 
@@ -437,7 +437,7 @@ func confirmPayment(cardid string, payid string) (status string) {
 	return status
 }
 
-func sendReqLog(rq requestparam) {
+func sendReqLog(rq Requestparam) {
 	log.Println(fmt.Printf("[WORKER] payexection request param %v", rq))
 }
 
