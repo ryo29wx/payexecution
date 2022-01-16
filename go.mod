@@ -14,8 +14,9 @@ require (
 	github.com/onsi/gomega v1.13.0 // indirect
 	github.com/opentracing/opentracing-go v1.1.1-0.20190913142402-a7454ce5950e // indirect
 	github.com/prometheus/client_golang v1.11.0
+	github.com/streadway/amqp v1.0.0 // indirect
 	github.com/stripe/stripe-go v70.15.0+incompatible
-	github.com/yabamuro/gocelery v0.0.0-20210623123410-c83e42ae2636
+	github.com/yabamuro/gocelery v0.0.0-20220116092620-76e2d56b5f55
 	go.opentelemetry.io/otel/internal/metric v0.21.0 // indirect
 	google.golang.org/genproto v0.0.0-20191009194640-548a555dbc03 // indirect
 	google.golang.org/grpc v1.29.1 // indirect
