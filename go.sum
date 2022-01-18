@@ -165,6 +165,8 @@ github.com/yabamuro/gocelery v0.0.0-20210623123410-c83e42ae2636 h1:WOsObM0jjsT9F
 github.com/yabamuro/gocelery v0.0.0-20210623123410-c83e42ae2636/go.mod h1:+lnzrLcwoDlcG1M3zVACAScis9AnG6IDoNSD/RpkBSA=
 github.com/yabamuro/gocelery v0.0.0-20220116092620-76e2d56b5f55 h1:G63B8ShVS0GPgKB9NbMq6/mzu7m7eJc3GLOWg238Kck=
 github.com/yabamuro/gocelery v0.0.0-20220116092620-76e2d56b5f55/go.mod h1:+lnzrLcwoDlcG1M3zVACAScis9AnG6IDoNSD/RpkBSA=
+github.com/yabamuro/gocelery v0.0.0-20220118154523-925e6cc2e222 h1:OB0D5qZAxgdituIYd8NUclK1/c1iZTTLpWnFeS0Oof4=
+github.com/yabamuro/gocelery v0.0.0-20220118154523-925e6cc2e222/go.mod h1:+lnzrLcwoDlcG1M3zVACAScis9AnG6IDoNSD/RpkBSA=
 github.com/yuin/goldmark v1.2.1/go.mod h1:3hX8gzYuyVAZsxl0MRgGTJEmQBFcNTphYh9decYSb74=
 go.opentelemetry.io/otel v0.19.0/go.mod h1:j9bF567N9EfomkSidSfmMwIwIBuP37AMAIzVW85OxSg=
 go.opentelemetry.io/otel v0.20.0/go.mod h1:Y3ugLH2oa81t5QO+Lty+zXf8zC9L26ax4Nzoxm/dooo=

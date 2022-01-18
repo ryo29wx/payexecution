@@ -16,7 +16,7 @@ require (
 	github.com/prometheus/client_golang v1.11.0
 	github.com/streadway/amqp v1.0.0 // indirect
 	github.com/stripe/stripe-go v70.15.0+incompatible
-	github.com/yabamuro/gocelery v0.0.0-20220116092620-76e2d56b5f55
+	github.com/yabamuro/gocelery v0.0.0-20220118154523-925e6cc2e222
 	go.opentelemetry.io/otel/internal/metric v0.21.0 // indirect
 	google.golang.org/genproto v0.0.0-20191009194640-548a555dbc03 // indirect
 	google.golang.org/grpc v1.29.1 // indirect
