@@ -88,6 +88,28 @@ type Requestparam struct {
 	Status        string
 }
 
+func newRequestparam(
+	transactionID, productID, customerid, imageURL, productName, userID, cardid, address, status string,
+	dealStock, totalAmount, category, price int32, retryCnt int,
+	restockFlag bool) *Requestparam {
+	return &Requestparam{
+		TransactionID: transactionID,
+		ProductID:     productID,
+		Customerid:    customerid,
+		DealStock:     dealStock,
+		TotalAmount:   totalAmount,
+		ImageURL:      imageURL,
+		Category:      category,
+		ProductName:   productName,
+		Price:         price,
+		UserID:        userID,
+		Cardid:        cardid,
+		Address:       address,
+		RetryCnt:      retryCnt,
+		RestockFlag:   restockFlag,
+		Status:        status}
+}
+
 type job struct {
 	Request  Requestparam
 	Receiver chan []byte
@@ -173,7 +195,33 @@ func main() {
 	}
 }
 
-func execute(rp Requestparam) int {
+func execute(transactionID, productID, customerid, imageURL, productName, userID, cardid, address, status string, 
+		dealStock, totalAmount, category, price int32, 
+		retryCnt int, 
+		restockFlag bool) int {
+	rp := newRequestparam(transactionID, 
+			productID, 
+			customerid, 
+			imageURL, 
+			productName, 
+			userID, 
+			cardid, 
+			address, 
+			status, 
+			dealStock, 
+			totalAmount, 
+			category, 
+			price, 
+			retryCnt, 
+			restockFlag)
+	if rp == nil {
+		logger.Error("RequestParam is nil")
+	}
+
+	return rp.pay()
+}
+
+func (rp *Requestparam) pay() int {
 
 	countReqs()
 	sendReqLog(rp)
@@ -437,7 +485,7 @@ func confirmPayment(cardid string, payid string) (status string) {
 	return status
 }
 
-func sendReqLog(rq Requestparam) {
+func sendReqLog(rq *Requestparam) {
 	log.Println(fmt.Printf("[WORKER] payexection request param %v", rq))
 }
 
