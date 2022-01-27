@@ -196,8 +196,7 @@ func main() {
 }
 
 func execute(transactionID, productID, customerid, imageURL, productName, userID, cardid, address, status string, 
-		dealStock, totalAmount, category, price int32, 
-		retryCnt int, 
+		dealStock, totalAmount, category, price, retryCnt float64, 
 		restockFlag bool) int {
 	rp := newRequestparam(transactionID, 
 			productID, 
@@ -208,11 +207,11 @@ func execute(transactionID, productID, customerid, imageURL, productName, userID
 			cardid, 
 			address, 
 			status, 
-			dealStock, 
-			totalAmount, 
-			category, 
-			price, 
-			retryCnt, 
+			int32(dealStock), 
+			int32(totalAmount), 
+			int32(category), 
+			int32(price), 
+			int(retryCnt), 
 			restockFlag)
 	if rp == nil {
 		logger.Error("RequestParam is nil")
