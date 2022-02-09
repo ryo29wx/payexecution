@@ -571,8 +571,8 @@ func ZAdd(redisClient *redis.Client, key string, z *redis.Z) {
 
 // SetNX : redis setnx
 func SetNX(redisClient *redis.Client, key, value string) bool {
-	logger.Debug("ZAdd.", zap.String("key:", key), zap.String("value:", value))
-	res, err := redisClient.SetNX(ctx, key, value, 0).Result()
+	logger.Debug("SetNX.", zap.String("key:", key), zap.String("value:", value))
+	res, err := redisClient.SetNX(ctx, key, value, time.Hour).Result()
 	if err != nil {
 		logger.Error("redis.Client.SetNX Error:", zap.Error(err))
 	}
