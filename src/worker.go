@@ -576,7 +576,7 @@ func SetNX(redisClient *redis.Client, key, value string) bool {
 	if err != nil {
 		logger.Error("redis.Client.SetNX Error:", zap.Error(err))
 	}
-
+	fmt.Println("SetNX res : ", res)
 	return res
 }
 
