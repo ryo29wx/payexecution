@@ -247,7 +247,7 @@ func (rp *Requestparam) pay() int {
 	}
 
 	exclusion := SetNX(redisClient, rp.ProductID, "intrade")
-	if exclusion {
+	if !exclusion {
 		// debug
 		logger.Debug("exclusion route.")
 
