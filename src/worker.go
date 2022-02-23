@@ -326,26 +326,26 @@ func startTransaction(transactionID, userID, customerid, cardid, address string,
 	logger.Debug("startTransaction.", zap.String("tID", transactionID))
 	var status string
 
-	if len(userID) == 0 {
+	// if len(userID) == 0 {
 		// TODO
 		// BankAPIの使用(transfer_money)
-	} else {
+	// } else {
 		// use strinp
-		payid := requestPayment(customerid, totalAmount, address, retryCnt)
-		if payid == "" || len(payid) <= 0 {
-			logger.Error("Payid is nil:", zap.String("Customerid:", customerid))
-			return ""
-		}
-
-		status = confirmPayment(cardid, payid)
-		if status != "succeeded" {
-			logger.Error("Authentication not successful:",
-				zap.String("Payid:", payid),
-				zap.String("Customerid:", customerid))
-			return ""
-		}
-
+	payid := requestPayment(customerid, totalAmount, address, retryCnt)
+	if payid == "" || len(payid) <= 0 {
+		logger.Error("Payid is nil:", zap.String("Customerid:", customerid))
+		return ""
 	}
+
+	status = confirmPayment(cardid, payid)
+	if status != "succeeded" {
+		logger.Error("Authentication not successful:",
+			zap.String("Payid:", payid),
+			zap.String("Customerid:", customerid))
+		return ""
+	}
+
+	// }
 	// Overwrite the result of payment completion to status
 	HashSet(redisClient, transactionID, transactionFieldName, status)
 	return status // succeeded
