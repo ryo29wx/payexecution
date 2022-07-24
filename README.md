@@ -1,12 +1,13 @@
-# Purchase_Request_Consumer
-Celery consumer(Worker)
+# Payexecution
+This is Celery consumer(Worker)
 Consume from the Broker built in Redis and flow to Backend(Redis)
 
-Client ->  Broker(Redis) -> Consumer(Worker) -> Backend(Redis)
+Client ->  Broker(Redis) -> Consumer(Payexecution) -> Backend(Redis)
 
-# Please refer to
-https://github.com/gocelery/gocelery
-https://godoc.org/github.com/gocelery/gocelery
+## Using Library
+- [gocelery](https://github.com/gocelery/gocelery) <br>
+- [stripe-go](https://pkg.go.dev/github.com/stripe/stripe-go)
 
-# CircleCI
+
+## CircleCI
 https://app.circleci.com/pipelines/github/ryo29wx/Purchase_Request_Consumer
