@@ -27,19 +27,9 @@ import (
 )
 
 const (
-	productionMode       = false
-	taskName             = "worker.execute"
-	notifyTaskName       = "worker.notification"
-	queue                = "payment"
-	notification         = "notification"
-	stgPubKey            = "pk_test_j5fvxJmoN3TlTaNTgcATv0W000HRwOI317"
-	prodPubKey           = "*******"
-	secStgKey            = "sk_test_v4QrE3LoY9Cu2ki3IwQylABI00Hbes7WQT"
-	secProdKey           = "*******"
-	updateRestockQuery   = "UPDATE PRODUCT_INFO SET STOCK='%v' WHERE PRODUCT_ID='%v'"
-	getStockQuery        = "SELECT STOCK FROM PRODUCT_INFO WHERE PRODUCT_ID='%v'"
-	layout               = "2006-01-02"
-	transactionFieldName = "transaction"
+	updateRestockQuery = "UPDATE PRODUCT_INFO SET STOCK='%v' WHERE PRODUCT_ID='%v'"
+	getStockQuery      = "SELECT STOCK FROM PRODUCT_INFO WHERE PRODUCT_ID='%v'"
+	layout             = "2006-01-02"
 )
 
 var (
@@ -79,6 +69,15 @@ var (
 	jobQueueBufferize int
 	logger            *zap.Logger
 	debug             bool
+
+	// Get Value from ConfigMap.
+	taskName             = os.Getenv("taskName")
+	notifyTaskName       = os.Getenv("notifyTaskName")
+	queue                = os.Getenv("queue")
+	notification         = os.Getenv("notification")
+	publicStripeKey      = os.Getenv("pubKey")
+	secretStripeKey      = os.Getenv("secKey")
+	transactionFieldName = os.Getenv("transactionFieldName")
 )
 
 type Requestparam struct {
@@ -139,13 +138,14 @@ func init() {
 		logger, _ = zap.NewProduction()
 	}
 
-	stripe.Key = secStgKey
 }
 
 func main() {
+	verify()
+	stripe.Key = secretStripeKey
 	// exec node-export service
 	go exportMetrics()
-	
+
 	// Celery INIT
 	redisServerName := fmt.Sprintf("%s:%s", os.Getenv("REDIS_SERVICE_HOST"), os.Getenv("REDIS_SERVICE_PORT"))
 	redisServerNameForCelery := "redis://" + redisServerName
@@ -206,24 +206,24 @@ func main() {
 	}
 }
 
-func execute(transactionID, productID, customerid, imageURL, productName, userID, cardid, address, status string, 
-		dealStock, totalAmount, category, price, retryCnt float64, 
-		restockFlag bool) int {
-	rp := newRequestparam(transactionID, 
-			productID, 
-			customerid, 
-			imageURL, 
-			productName, 
-			userID, 
-			cardid, 
-			address, 
-			status, 
-			int32(dealStock), 
-			int32(totalAmount), 
-			int32(category), 
-			int32(price), 
-			int(retryCnt), 
-			restockFlag)
+func execute(transactionID, productID, customerid, imageURL, productName, userID, cardid, address, status string,
+	dealStock, totalAmount, category, price, retryCnt float64,
+	restockFlag bool) int {
+	rp := newRequestparam(transactionID,
+		productID,
+		customerid,
+		imageURL,
+		productName,
+		userID,
+		cardid,
+		address,
+		status,
+		int32(dealStock),
+		int32(totalAmount),
+		int32(category),
+		int32(price),
+		int(retryCnt),
+		restockFlag)
 	if rp == nil {
 		logger.Error("RequestParam is nil")
 	}
@@ -292,7 +292,6 @@ func (rp *Requestparam) pay() int {
 		case "start":
 			st = startTransaction(rp.TransactionID, rp.UserID, rp.Customerid, rp.Cardid, rp.Address, int(rp.TotalAmount), rp.RetryCnt)
 
-
 			if st == "" {
 				return 400
 			}
@@ -346,10 +345,10 @@ func startTransaction(transactionID, userID, customerid, cardid, address string,
 	var status string
 
 	// if len(userID) == 0 {
-		// TODO
-		// BankAPIの使用(transfer_money)
+	// TODO
+	// BankAPIの使用(transfer_money)
 	// } else {
-		// use strinp
+	// use strinp
 	payid := requestPayment(customerid, totalAmount, address, retryCnt)
 	if payid == "" || len(payid) <= 0 {
 		logger.Error("Payid is nil:", zap.String("Customerid:", customerid))
@@ -376,7 +375,6 @@ func succeededTransaction(db *sql.DB,
 	category, dealStock, price int,
 	restockFlag bool) (string, int) {
 	logger.Debug("[WORKER] succeeded route.")
-
 
 	nowStocks, err := getStocks(productID, db)
 	if err != nil {
@@ -415,7 +413,6 @@ func succeededTransaction(db *sql.DB,
 		// debug
 		logger.Debug("restock route.")
 
-
 		insertStock := nowStocks + dealStock
 		updateStocks(productID, insertStock, db)
 	}
@@ -447,7 +444,6 @@ func notificationTransaction(transactionID, productID string) {
 	logger.Debug("notificationTransaction.",
 		zap.String("transactionID:", transactionID),
 		zap.String("productID:", productID))
-
 
 	DELETE(redisClient, productID)
 	DELETE(redisClient, transactionID)
@@ -667,6 +663,25 @@ func updateStocks(productID string, updateStocks int, db *sql.DB) {
 			zap.String(" |Query is:", updateStockQuery))
 
 	}
+}
+
+func verify() {
+	if taskName == "" {
+		panic("val: taskName is empty")
+	} else if notifyTaskName == "" {
+		panic("val: notifyTaskName is empty")
+	} else if queue == "" {
+		panic("val: queue is empty")
+	} else if notification == "" {
+		panic("val: notification is empty")
+	} else if publicStripeKey == "" {
+		panic("val: publicStripeKey is empty")
+	} else if secretStripeKey == "" {
+		panic("val: secretStripeKey is empty")
+	} else if transactionFieldName == "" {
+		panic("val: transactionFieldName is empty")
+	}
+
 }
 
 // for goroutin
