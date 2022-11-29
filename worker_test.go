@@ -26,7 +26,7 @@ func TestTimeToString(t *testing.T) {
 }
 
 func TestRequestPayment(t *testing.T) {
-	stripe.Key = secStgKey
+	stripe.Key = "test_key"
 	customerid := getCutomerID("test@gmail.com")
 	totalAmount := 500
 	address := "test_address"
@@ -57,7 +57,7 @@ func getCutomerID(address string) (customerid string) {
 }
 
 func TestConfirmPayment(t *testing.T) {
-	stripe.Key = secStgKey
+	stripe.Key = "test_key"
 	cardToken := getCardToken("4242424242424242", "7", "2025", "123", "testUser")
 	customerid := getCutomerID("test@gmail.com")
 
