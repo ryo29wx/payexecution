@@ -61,6 +61,7 @@ var (
 	celeryClient      *gocelery.CeleryClient
 	notifyClient      *gocelery.CeleryClient
 	redisClient       *redis.Client
+	redisCStruct      *RedisStruct
 	ctx               context.Context
 	redisServerName   string
 	gomaxprocs        int
@@ -118,6 +119,21 @@ func newRequestparam(
 		RetryCnt:      retryCnt,
 		RestockFlag:   restockFlag,
 		Status:        status}
+}
+
+type RedisStruct struct {
+	RedisClient *redis.Client
+}
+
+func NewRedis(redisClient *redis.Client) *RedisStruct {
+	r := new(RedisStruct)
+	r.RedisClient = redisClient
+
+	return r
+}
+
+type RedisManager interface {
+	HashSet(*redis.Client, string, string, interface{})
 }
 
 type job struct {
@@ -183,6 +199,8 @@ func main() {
 		Password: "", // no password set
 		DB:       0,  // use default DB
 	})
+
+	redisCStruct = NewRedis(redisClient)
 
 	ctx = context.Background()
 	ctxLocal, cancel := context.WithTimeout(ctx, 5*time.Hour)
@@ -530,6 +548,17 @@ func HashSet(redisClient *redis.Client, key, field string, value interface{}) {
 	}
 }
 
+func (rs *RedisStruct) HashSet(key, field string, value interface{}) {
+	logger.Debug("HashSet.",
+		zap.String("key:", key),
+		zap.String("field:", field),
+		zap.Any("value:", value))
+	err := rs.RedisClient.HSet(ctx, key, field, value).Err()
+	if err != nil {
+		logger.Error("redis.Client.HSet Error:", zap.Error(err))
+	}
+}
+
 // HashMSet :redis hash malti set
 func HashMSet(redisClient *redis.Client, key, value string) {
 	// Set
@@ -681,6 +710,7 @@ func verify() {
 	} else if transactionFieldName == "" {
 		panic("val: transactionFieldName is empty")
 	}
+	logger.Info("payexecution verify passed!")
 
 }
 

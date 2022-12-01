@@ -13,7 +13,19 @@ import (
 	"github.com/stripe/stripe-go/card"
 	"github.com/stripe/stripe-go/customer"
 	"github.com/stripe/stripe-go/token"
+	"go.uber.org/zap"
 )
+
+func (rs *RedisStruct) HashSet(key, field string, value interface{}) {
+	logger.Debug("HashSet.",
+		zap.String("key:", key),
+		zap.String("field:", field),
+		zap.Any("value:", value))
+	err := rs.RedisClient.HSet(ctx, key, field, value).Err()
+	if err != nil {
+		logger.Error("redis.Client.HSet Error:", zap.Error(err))
+	}
+}
 
 func TestTimeToString(t *testing.T) {
 	ti := time.Now()
