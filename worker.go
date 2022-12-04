@@ -128,12 +128,34 @@ type RedisStruct struct {
 func NewRedis(redisClient *redis.Client) *RedisStruct {
 	r := new(RedisStruct)
 	r.RedisClient = redisClient
-
 	return r
 }
 
 type RedisManager interface {
 	HashSet(*redis.Client, string, string, interface{})
+}
+
+type StripeStruct struct {
+	payparams *(stripe.PaymentIntentParams)
+}
+
+func NewStripe(payparams *(stripe.PaymentIntentParams)) *StripeStruct {
+	s := new(StripeStruct)
+	s.payparams = payparams
+	return s
+}
+
+type StripeManager interface {
+	New(*(stripe.PaymentIntentParams))
+}
+
+func (s *StripeStruct) New() (*stripe.PaymentIntent, error) {
+	obj, err := paymentintent.New(s.payparams)
+	if err != nil {
+		logger.Error("initialize Stripe API failed.")
+	}
+
+	return obj, err
 }
 
 type job struct {
@@ -482,7 +504,9 @@ func requestPayment(customerid string, totalAmount int, address string, retryCnt
 			"card",
 		}),
 	}
-	obj, err := paymentintent.New(payparams)
+
+	stripeSt := NewStripe(payparams)
+	obj, err := stripeSt.New()
 	if err != nil {
 		logger.Error("requestPayment failed.:", zap.Error(err))
 
