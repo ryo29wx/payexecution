@@ -61,7 +61,6 @@ var (
 	celeryClient      *gocelery.CeleryClient
 	notifyClient      *gocelery.CeleryClient
 	redisClient       *redis.Client
-	redisCStruct      *RedisStruct
 	ctx               context.Context
 	redisServerName   string
 	gomaxprocs        int
@@ -121,35 +120,26 @@ func newRequestparam(
 		Status:        status}
 }
 
-type RedisStruct struct {
-	RedisClient *redis.Client
+// Stripe Interface below
+type stripeObj struct {
+	payparams    *(stripe.PaymentIntentParams)
+	confirmparam *(stripe.PaymentIntentConfirmParams)
 }
 
-func NewRedis(redisClient *redis.Client) *RedisStruct {
-	r := new(RedisStruct)
-	r.RedisClient = redisClient
-	return r
-}
-
-type RedisManager interface {
-	HashSet(*redis.Client, string, string, interface{})
-}
-
-type StripeStruct struct {
-	payparams *(stripe.PaymentIntentParams)
-}
-
-func NewStripe(payparams *(stripe.PaymentIntentParams)) *StripeStruct {
-	s := new(StripeStruct)
-	s.payparams = payparams
+func newStripe(payparams *(stripe.PaymentIntentParams), cardid string) stripeManager {
+	confirmation := &stripe.PaymentIntentConfirmParams{
+		PaymentMethod: stripe.String(cardid),
+	}
+	s := &stripeObj{payparams, confirmation}
 	return s
 }
 
-type StripeManager interface {
-	New(*(stripe.PaymentIntentParams))
+type stripeManager interface {
+	newParam() (*stripe.PaymentIntent, error)
+	confirm(string) (*stripe.PaymentIntent, error)
 }
 
-func (s *StripeStruct) New() (*stripe.PaymentIntent, error) {
+func (s *stripeObj) newParam() (*stripe.PaymentIntent, error) {
 	obj, err := paymentintent.New(s.payparams)
 	if err != nil {
 		logger.Error("initialize Stripe API failed.")
@@ -158,9 +148,22 @@ func (s *StripeStruct) New() (*stripe.PaymentIntent, error) {
 	return obj, err
 }
 
+func (s *stripeObj) confirm(payid string) (*stripe.PaymentIntent, error) {
+	pi, err := paymentintent.Confirm(
+		payid,
+		s.confirmparam,
+	)
+
+	if err != nil {
+		logger.Error("confirm payment to Stripe API failed.")
+	}
+
+	return pi, err
+}
+
+// Invoked from main function.
 type job struct {
-	Request  Requestparam
-	Receiver chan []byte
+	stripeManager stripeManager
 }
 
 func init() {
@@ -221,8 +224,6 @@ func main() {
 		Password: "", // no password set
 		DB:       0,  // use default DB
 	})
-
-	redisCStruct = NewRedis(redisClient)
 
 	ctx = context.Background()
 	ctxLocal, cancel := context.WithTimeout(ctx, 5*time.Hour)
@@ -389,13 +390,26 @@ func startTransaction(transactionID, userID, customerid, cardid, address string,
 	// BankAPIの使用(transfer_money)
 	// } else {
 	// use strinp
-	payid := requestPayment(customerid, totalAmount, address, retryCnt)
+	payparams := &stripe.PaymentIntentParams{
+		Amount:   stripe.Int64(int64(totalAmount) / 10),
+		Customer: stripe.String(customerid),
+		Currency: stripe.String(string(stripe.CurrencyUSD)),
+		// Receipt_email: stripe.String(address),
+		PaymentMethodTypes: stripe.StringSlice([]string{
+			"card",
+		}),
+	}
+
+	st := newStripe(payparams, cardid)
+	job := &job{stripeManager: st}
+
+	payid := job.requestPayment()
 	if payid == "" || len(payid) <= 0 {
 		logger.Error("Payid is nil:", zap.String("Customerid:", customerid))
 		return ""
 	}
 
-	status = confirmPayment(cardid, payid)
+	status = job.confirmPayment(payid)
 	if status != "succeeded" {
 		logger.Error("Authentication not successful:",
 			zap.String("Payid:", payid),
@@ -494,19 +508,8 @@ Create a unique PaymentIntent in the order session.
 This is for later retracing the purchase history, etc.
 @see : https://stripe.com/docs/api/payment_intents
 */
-func requestPayment(customerid string, totalAmount int, address string, retryCnt int) (payid string) {
-	payparams := &stripe.PaymentIntentParams{
-		Amount:   stripe.Int64(int64(totalAmount) / 10),
-		Customer: stripe.String(customerid),
-		Currency: stripe.String(string(stripe.CurrencyUSD)),
-		// Receipt_email: stripe.String(address),
-		PaymentMethodTypes: stripe.StringSlice([]string{
-			"card",
-		}),
-	}
-
-	stripeSt := NewStripe(payparams)
-	obj, err := stripeSt.New()
+func (job *job) requestPayment() (payid string) {
+	obj, err := job.stripeManager.newParam()
 	if err != nil {
 		logger.Error("requestPayment failed.:", zap.Error(err))
 
@@ -531,14 +534,13 @@ func requestPayment(customerid string, totalAmount int, address string, retryCnt
 Get the result of the payment.
 @see : https://stripe.com/docs/payments/intents#intent-statuses
 */
-func confirmPayment(cardid string, payid string) (status string) {
-	params := &stripe.PaymentIntentConfirmParams{
-		PaymentMethod: stripe.String(cardid),
+func (job *job) confirmPayment(payid string) (status string) {
+	if payid == "" {
+		logger.Error("Invoked with empty payid.")
+		return "confirmation failed"
 	}
-	pi, _ := paymentintent.Confirm(
-		payid,
-		params,
-	)
+	pi, _ := job.stripeManager.confirm(payid)
+
 	v := reflect.ValueOf(*pi)
 	for i := 0; i < v.NumField(); i++ {
 		if v.Type().Field(i).Name == "Status" {
@@ -567,17 +569,6 @@ func HashSet(redisClient *redis.Client, key, field string, value interface{}) {
 		zap.String("field:", field),
 		zap.Any("value:", value))
 	err := redisClient.HSet(ctx, key, field, value).Err()
-	if err != nil {
-		logger.Error("redis.Client.HSet Error:", zap.Error(err))
-	}
-}
-
-func (rs *RedisStruct) HashSet(key, field string, value interface{}) {
-	logger.Debug("HashSet.",
-		zap.String("key:", key),
-		zap.String("field:", field),
-		zap.Any("value:", value))
-	err := rs.RedisClient.HSet(ctx, key, field, value).Err()
 	if err != nil {
 		logger.Error("redis.Client.HSet Error:", zap.Error(err))
 	}

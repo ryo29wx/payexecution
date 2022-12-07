@@ -15,11 +15,21 @@ import (
 	"github.com/stripe/stripe-go/token"
 )
 
-type TestRedis struct {
+// mocking stripe
+type mockStripeObj struct {
 }
 
-func (rs *TestRedis) HashSet(key, field string, value interface{}) {
-	return
+func (s *mockStripeObj) newParam() (*stripe.PaymentIntent, error) {
+	p := new(stripe.PaymentIntent)
+	p.ID = "pi_mockid"
+	return p, fmt.Errorf("Error: %s", "mock error.")
+}
+
+func (s *mockStripeObj) confirm(payid string) (*stripe.PaymentIntent, error) {
+	p := new(stripe.PaymentIntent)
+	p.ID = payid
+	p.Status = "succeeded"
+	return p, fmt.Errorf("Error: %s", "mock error.")
 }
 
 func TestTimeToString(t *testing.T) {
@@ -34,12 +44,9 @@ func TestTimeToString(t *testing.T) {
 
 func TestRequestPayment(t *testing.T) {
 	stripe.Key = "test_key"
-	customerid := getCutomerID("test@gmail.com")
-	totalAmount := 500
-	address := "test_address"
-	retryCnt := 10
 
-	result := requestPayment(customerid, totalAmount, address, retryCnt)
+	job := &job{stripeManager: &mockStripeObj{}}
+	result := job.requestPayment()
 
 	if !strings.Contains(result, "pi_") {
 		fmt.Println(result)
@@ -64,16 +71,9 @@ func getCutomerID(address string) (customerid string) {
 }
 
 func TestConfirmPayment(t *testing.T) {
-	stripe.Key = "test_key"
-	cardToken := getCardToken("4242424242424242", "7", "2025", "123", "testUser")
-	customerid := getCutomerID("test@gmail.com")
-
-	cardid := getCardID(customerid, cardToken)
-	totalAmount := 500
-	address := "test_address"
-	retryCnt := 10
-	payid := requestPayment(customerid, totalAmount, address, retryCnt)
-	result := confirmPayment(cardid, payid)
+	testPayid := "pi_testid"
+	job := &job{stripeManager: &mockStripeObj{}}
+	result := job.confirmPayment(testPayid)
 
 	if result != "succeeded" {
 		fmt.Println(result)
