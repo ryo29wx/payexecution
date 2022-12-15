@@ -15,7 +15,7 @@ https://app.circleci.com/pipelines/github/ryo29wx/Purchase_Request_Consumer
 ## How to build
 ```
 $ go version
-go version go1.16.3 darwin/amd64
+go version go1.19.2 darwin/amd64
 
 $ go build
 $ go test 
