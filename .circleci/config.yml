@@ -63,7 +63,7 @@ jobs:
           webhook: '${SLACK_WEBHOOK}'
   test:
     docker:
-      - image: circleci/golang:1.16
+      - image: circleci/golang:1.18
         environment:
           SECRET_USER: user
           SECRET_PASS: passw0rd
@@ -110,8 +110,8 @@ jobs:
             go get github.com/prometheus/client_golang/prometheus &&
             go get github.com/prometheus/client_golang/prometheus/promhttp &&
             go get go.uber.org/zap &&
-            go build worker.go &&
-          # go test -run _DB . 
+            go build . &&
+            go test .
 
 workflows:
   version: 2
