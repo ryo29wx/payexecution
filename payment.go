@@ -119,6 +119,10 @@ type job struct {
 	stripeManager stripeManager
 }
 
+type paymentjob struct {
+	redisManager redisManager
+}
+
 func execute(transactionID, productID, customerid, imageURL, productName, userID, cardid, address, status string,
 	dealStock, totalAmount, category, price, retryCnt float64,
 	restockFlag bool) int {
@@ -149,7 +153,7 @@ func (rp *Requestparam) pay() int {
 	payexeReqCount.Inc()
 
 	// initialize redis controller struct
-	HashSet(redisClient, rp.TransactionID, transactionFieldName, rp.Status)
+	pj.redisManager.HashSet(redisClient, rp.TransactionID, transactionFieldName, rp.Status)
 
 	// Connect DB(MySQL)
 	db, err := connectDB()
@@ -169,26 +173,26 @@ func (rp *Requestparam) pay() int {
 		return 0
 	}
 
-	exclusion := SetNX(redisClient, rp.ProductID, "intrade")
+	exclusion := pj.redisManager.SetNX(redisClient, rp.ProductID, "intrade")
 	if !exclusion {
 
 		// debug
 		logger.Debug("exclusion route.")
 
 		if rp.RetryCnt > 10 {
-			_, err = notifyClient.Delay(notifyTaskName, rp.Address, "The number of retries has been exceeded.　Please try again in a few minutes.")
+			err = celJob.celeryManager.nDelay(notifyTaskName, rp)
 
 			if err != nil {
 				logger.Error("FAILER notification failed:", zap.Error(err))
 			}
-			DELETE(redisClient, rp.ProductID)
+			pj.redisManager.DELETE(redisClient, rp.ProductID)
 		}
 
 		time.Sleep(10 * time.Second)
 		rp.RetryCnt = rp.RetryCnt + 1
 		rp.RestockFlag = false
 		rp.Status = "start"
-		_, err = celeryClient.Delay(taskName, rp)
+		err = celJob.celeryManager.delay(taskName, rp)
 		if err != nil {
 			logger.Error("Enqueue Error:", zap.Error(err),
 				zap.String("ProductId:", rp.ProductID),
@@ -197,11 +201,11 @@ func (rp *Requestparam) pay() int {
 			return 400
 		}
 	} else {
-		st := HashGet(redisClient, rp.TransactionID, transactionFieldName)
+		st := pj.redisManager.HashGet(redisClient, rp.TransactionID, transactionFieldName)
 
 		switch st {
 		case "start":
-			st = rp.startTransaction()
+			st = pj.startTransaction(rp)
 
 			if st == "" {
 				return 400
@@ -209,14 +213,14 @@ func (rp *Requestparam) pay() int {
 			fallthrough
 
 		case "succeeded":
-			st, nowStocks = rp.succeededTransaction(db)
+			st, nowStocks = pj.succeededTransaction(db, rp)
 			if st == "" || nowStocks == -1 {
 				return 400
 			}
 			fallthrough
 
 		case "settlement_done":
-			st = rp.settleTransaction()
+			st = pj.settleTransaction(rp)
 
 			if st == "" {
 				return 400
@@ -224,7 +228,7 @@ func (rp *Requestparam) pay() int {
 			fallthrough
 
 		case "notification_done":
-			rp.notificationTransaction()
+			pj.notificationTransaction(rp)
 
 		default:
 			logger.Debug("Do Nothing. :", zap.Any("request:", rp))
@@ -239,8 +243,10 @@ func (rp *Requestparam) pay() int {
 			rp.DealStock = 5
 			rp.RestockFlag = true
 			rp.Status = "start"
-			_, err = celeryClient.Delay(taskName, rp)
-
+			err = celJob.celeryManager.delay(taskName, rp)
+			if err != nil {
+				logger.Error("Celery task Error!")
+			}
 		}
 
 		payexeResCount.Inc()
@@ -250,7 +256,7 @@ func (rp *Requestparam) pay() int {
 	return 0
 }
 
-func (rp *Requestparam) startTransaction() string {
+func (pjob *paymentjob) startTransaction(rp *Requestparam) string {
 	logger.Debug("startTransaction.", zap.String("tID", rp.TransactionID))
 	var status string
 
@@ -287,11 +293,11 @@ func (rp *Requestparam) startTransaction() string {
 	}
 
 	// Overwrite the result of payment completion to status
-	HashSet(redisClient, rp.TransactionID, transactionFieldName, status)
+	pjob.redisManager.HashSet(redisClient, rp.TransactionID, transactionFieldName, status)
 	return status // succeeded
 }
 
-func (rp *Requestparam) succeededTransaction(db *sql.DB) (string, int) {
+func (pjob *paymentjob) succeededTransaction(db *sql.DB, rp *Requestparam) (string, int) {
 	logger.Debug("[WORKER] succeeded route.")
 
 	nowStocks, err := getStocks(rp.ProductID, db)
@@ -309,13 +315,13 @@ func (rp *Requestparam) succeededTransaction(db *sql.DB) (string, int) {
 		z := &redis.Z{}
 		z.Score = float64(rp.DealStock)
 		z.Member = rp.ProductID
-		ZAdd(redisClient, zaddKey, z)
-		ZAdd(redisClient, zaddKey99, z)
+		pjob.redisManager.ZAdd(redisClient, zaddKey, z)
+		pjob.redisManager.ZAdd(redisClient, zaddKey99, z)
 
 		// hsetValue := fmt.Sprintf("price:%v,imageURL:%v,name:%v", price, imageURL, productName)
-		HashSet(redisClient, rp.ProductID, "price", rp.Price)
-		HashSet(redisClient, rp.ProductID, "url", rp.ImageURL)
-		HashSet(redisClient, rp.ProductID, "name", rp.ProductName)
+		pjob.redisManager.HashSet(redisClient, rp.ProductID, "price", rp.Price)
+		pjob.redisManager.HashSet(redisClient, rp.ProductID, "url", rp.ImageURL)
+		pjob.redisManager.HashSet(redisClient, rp.ProductID, "name", rp.ProductName)
 
 		if nowStocks >= int(rp.DealStock) {
 			logger.Debug("update stock route.", zap.Int("nowStocks:", nowStocks), zap.Int("dealStock:", int(rp.DealStock)))
@@ -335,18 +341,18 @@ func (rp *Requestparam) succeededTransaction(db *sql.DB) (string, int) {
 		updateStocks(rp.ProductID, insertStock, db)
 	}
 	status := "settlement_done"
-	HashSet(redisClient, rp.TransactionID, transactionFieldName, status)
+	pjob.redisManager.HashSet(redisClient, rp.TransactionID, transactionFieldName, status)
 
 	return status, nowStocks
 }
 
-func (rp *Requestparam) settleTransaction() string {
+func (pjob *paymentjob) settleTransaction(rp *Requestparam) string {
 	logger.Debug("settleTransaction.",
 		zap.String("transactionID:", rp.TransactionID),
 		zap.String("address:", rp.Address),
 		zap.String("productName:", rp.ProductName))
 
-	_, err := notifyClient.Delay(notifyTaskName, rp.Address, fmt.Sprintf("The 'ProductName:[%v]' has been purchased.", rp.ProductName))
+	err := celJob.celeryManager.nDelay(notifyTaskName, rp)
 	if err != nil {
 		logger.Error("notification failed.")
 
@@ -354,17 +360,17 @@ func (rp *Requestparam) settleTransaction() string {
 	}
 
 	status := "notification_done"
-	HashSet(redisClient, rp.TransactionID, transactionFieldName, status)
+	pjob.redisManager.HashSet(redisClient, rp.TransactionID, transactionFieldName, status)
 	return status
 }
 
-func (rp *Requestparam) notificationTransaction() {
+func (pjob *paymentjob) notificationTransaction(rp *Requestparam) {
 	logger.Debug("notificationTransaction.",
 		zap.String("transactionID:", rp.TransactionID),
 		zap.String("productID:", rp.ProductID))
 
-	DELETE(redisClient, rp.ProductID)
-	DELETE(redisClient, rp.TransactionID)
+	pjob.redisManager.DELETE(redisClient, rp.ProductID)
+	pjob.redisManager.DELETE(redisClient, rp.TransactionID)
 }
 
 /*
