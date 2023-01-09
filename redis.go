@@ -8,9 +8,37 @@ import (
 	"go.uber.org/zap"
 )
 
+// Redis Class
+type redisObj struct {
+	redisClient *redis.Client
+}
+
+func newRedis(redisServerName, password string, db int) redisManager {
+	// go-redis init
+	redisClient := redis.NewClient(&redis.Options{
+		Addr:     redisServerName,
+		Password: password, // no password set
+		DB:       db,  // use default DB
+	})
+	r := &redisObj{redisClient}
+	return r
+}
+
+type redisManager interface {
+	HashSet(*redis.Client, string, string, interface{})
+	HashMSet(*redis.Client, string, string)
+	HashGet(*redis.Client, string, string,) string
+	HashDelete(*redis.Client, string, string)
+	Get(*redis.Client, string) string
+	DELETE(*redis.Client, string)
+	ZAdd(*redis.Client, string, *redis.Z)
+	SetNX(*redis.Client, string, string) bool 
+}
+
+
 // HashSet :redis hash-set
 // see : http://redis.shibu.jp/commandreference/hashes.html
-func HashSet(redisClient *redis.Client, key, field string, value interface{}) {
+func (r *redisObj) HashSet(redisClient *redis.Client, key, field string, value interface{}) {
 	logger.Debug("HashSet.",
 		zap.String("key:", key),
 		zap.String("field:", field),
@@ -22,7 +50,7 @@ func HashSet(redisClient *redis.Client, key, field string, value interface{}) {
 }
 
 // HashMSet :redis hash malti set
-func HashMSet(redisClient *redis.Client, key, value string) {
+func (r *redisObj) HashMSet(redisClient *redis.Client, key, value string) {
 	// Set
 	logger.Debug("HashMSet.", zap.String("key:", key), zap.String("value:", value))
 	err := redisClient.HMSet(ctx, key, value).Err()
@@ -32,7 +60,7 @@ func HashMSet(redisClient *redis.Client, key, value string) {
 }
 
 // HashGet :redis hash get
-func HashGet(redisClient *redis.Client, key, field string) string {
+func (r *redisObj) HashGet(redisClient *redis.Client, key, field string) string {
 	// Get
 	// HGet(key, field string) *StringCmd
 	logger.Debug("HashGet.", zap.String("key:", key), zap.String("field:", field))
@@ -46,7 +74,7 @@ func HashGet(redisClient *redis.Client, key, field string) string {
 }
 
 // HashDelete : redis hash delete
-func HashDelete(redisClient *redis.Client, key, field string) {
+func (r *redisObj) HashDelete(redisClient *redis.Client, key, field string) {
 	logger.Debug("HashDelete.", zap.String("key:", key), zap.String("field:", field))
 	err := redisClient.HDel(ctx, key, field).Err()
 
@@ -56,7 +84,7 @@ func HashDelete(redisClient *redis.Client, key, field string) {
 }
 
 // Get : redis get
-func Get(redisClient *redis.Client, key string) string {
+func (r *redisObj) Get(redisClient *redis.Client, key string) string {
 	// Get
 	logger.Debug("Get.", zap.String("key:", key))
 	val, err := redisClient.Get(ctx, key).Result()
@@ -68,7 +96,7 @@ func Get(redisClient *redis.Client, key string) string {
 }
 
 // DELETE : redis delete
-func DELETE(redisClient *redis.Client, key string) {
+func (r *redisObj) DELETE(redisClient *redis.Client, key string) {
 	logger.Debug("DELETE.", zap.String("key:", key))
 	err := redisClient.Del(ctx, key).Err()
 
@@ -78,7 +106,7 @@ func DELETE(redisClient *redis.Client, key string) {
 }
 
 // ZAdd : redis zadd
-func ZAdd(redisClient *redis.Client, key string, z *redis.Z) {
+func (r *redisObj) ZAdd(redisClient *redis.Client, key string, z *redis.Z) {
 	logger.Debug("ZAdd.", zap.String("key:", key), zap.Any("z:", z))
 	err := redisClient.ZAdd(ctx, key, z).Err()
 	if err != nil {
@@ -87,7 +115,7 @@ func ZAdd(redisClient *redis.Client, key string, z *redis.Z) {
 }
 
 // SetNX : redis setnx
-func SetNX(redisClient *redis.Client, key, value string) bool {
+func (r *redisObj) SetNX(redisClient *redis.Client, key, value string) bool {
 	logger.Debug("SetNX.", zap.String("key:", key), zap.String("value:", value))
 	res, err := redisClient.SetNX(ctx, key, value, time.Hour).Result()
 	if err != nil {

@@ -20,6 +20,8 @@ import (
 )
 
 var (
+	pj              *paymentjob
+	celJob          *celeryJob
 	celeryClient    *gocelery.CeleryClient
 	notifyClient    *gocelery.CeleryClient
 	redisClient     *redis.Client
@@ -73,7 +75,7 @@ func main() {
 		log.Println("Execute Celery doesnt connect Redis. [", err, "]")
 	}
 
-	notifyClient, err = gocelery.NewCeleryClient(
+	notifyClient, err := gocelery.NewCeleryClient(
 		gocelery.NewRedisCeleryBroker(redisServerNameForCelery, notification),
 		gocelery.NewRedisCeleryBackend(redisServerNameForCelery),
 		1,
@@ -87,14 +89,11 @@ func main() {
 	cli.StartWorker()
 	defer cli.StopWorker()
 	log.Println(fmt.Printf("[WORKER] worker start: concurrency=%v\n", concurrency))
-	celeryClient = cli
+	
+	celJob = &celeryJob{celeryManager: newCelery(taskName, notifyTaskName, cli, notifyClient)}
 
 	// go-redis init
-	redisClient = redis.NewClient(&redis.Options{
-		Addr:     redisServerName,
-		Password: "", // no password set
-		DB:       0,  // use default DB
-	})
+	pj = &paymentjob{redisManager: newRedis(redisServerName, "", 0)}
 
 	ctx = context.Background()
 	ctxLocal, cancel := context.WithTimeout(ctx, 5*time.Hour)
