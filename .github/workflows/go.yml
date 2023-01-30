@@ -22,7 +22,7 @@ jobs:
         go-version: 1.18
 
     - name: Build
-      run: go build -v ./...
+      run: go build -v .
 
     - name: Test
       run: go test -v ./...
@@ -61,3 +61,4 @@ jobs:
         run: docker build -t gcr.io/${{ secrets.GCP_PROJECT_ID }}/payexecution_snapshot:${GITHUB_SHA::7} .
       - name: Push the docker image
         run: docker push gcr.io/${{ secrets.GCP_PROJECT_ID }}/payexecution_snapshot:${GITHUB_SHA::7} .
+
