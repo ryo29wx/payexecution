@@ -30,6 +30,9 @@ jobs:
   docker_build:
     runs-on: ubuntu-18.04
     steps:
+    - name: Checkout the repository
+      uses: actions/checkout@v1
+      
     - id: 'auth'
       uses: 'google-github-actions/auth@v1'
       with:
