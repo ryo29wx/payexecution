@@ -37,12 +37,12 @@ jobs:
       uses: 'google-github-actions/auth@v1'
       with:
         credentials_json: ${{ secrets.GCP_CREDENTIALS }}
-    #- name: GCP Authenticate
-    #  uses: GoogleCloudPlatform/github-actions/setup-gcloud@v0
-    #  with:
-    #    version: '>= 363.0.0'
-      #  service_account_email: ${{ secrets.GCP_SERVICE_ACCOUNT_EMAIL }}
-      #  service_account_key: ${{ secrets.GCP_SERVICE_ACCOUNT_KEY }}
+    - name: GCP Authenticate
+      uses: GoogleCloudPlatform/github-actions/setup-gcloud@v0
+      with:
+        version: '>= 363.0.0'
+        service_account_email: ${{ secrets.GCP_SERVICE_ACCOUNT_EMAIL }}
+        service_account_key: ${{ secrets.GCP_SERVICE_ACCOUNT_KEY }}
     #- name: Configure docker to use the gcloud cli
     #  run: gcloud auth configure-docker --quiet
     #- name: Build a docker image
