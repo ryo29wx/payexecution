@@ -33,10 +33,10 @@ jobs:
     - name: Checkout the repository
       uses: actions/checkout@v1
 
-    - name: GCP Authenticate
-      uses: 'google-github-actions/auth@v1'
-      with:
-        credentials_json: ${{ secrets.GCP_CREDENTIALS }}
+    # - name: GCP Authenticate
+    #   uses: 'google-github-actions/auth@v1'
+    #   with:
+    #     credentials_json: ${{ secrets.GCP_CREDENTIALS }}
 
     - name: Setup GCloud
       uses: 'GoogleCloudPlatform/github-actions/setup-gcloud@v1'
