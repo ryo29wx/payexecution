@@ -26,31 +26,18 @@ jobs:
 
     - name: Test
       run: go test -v .
-  
-  credential:
+
+  docker_build:
     runs-on: ubuntu-18.04
     steps:
     - name: Checkout the repository
       uses: actions/checkout@v1
 
-    - id: 'auth'
+    - name: GCP Authenticate
       uses: 'google-github-actions/auth@v1'
       with:
-        credentials_json: ${{ secrets.GCP_CREDENTIALS }}    
-
-
-  docker_build:
-    runs-on: ubuntu-18.04
-    needs: credential
-    #steps:
-    #- name: Checkout the repository
-    #  uses: actions/checkout@v1
-
-    #- id: 'auth'
-    #  uses: 'google-github-actions/auth@v1'
-    #  with:
-    #    credentials_json: ${{ secrets.GCP_CREDENTIALS }}
-    - name: GCP Authenticate
+        credentials_json: ${{ secrets.GCP_CREDENTIALS }}
+    - name: Setup GCloud
       uses: GoogleCloudPlatform/github-actions/setup-gcloud@v1
       with:
         version: '>= 363.0.0'
