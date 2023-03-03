@@ -44,11 +44,11 @@ jobs:
         version: '>= 363.0.0'
         service_account_email: ${{ secrets.GCP_SERVICE_ACCOUNT_EMAIL }}
         service_account_key: ${{ secrets.GCP_SERVICE_ACCOUNT_KEY }}
-    #- name: Configure docker to use the gcloud cli
-    #  run: gcloud auth configure-docker --quiet
-    #- name: Build a docker image
+    - name: Configure docker to use the gcloud cli
+      run: gcloud auth configure-docker --quiet
+    - name: Build a docker image
       # run: docker build -t asia.gcr.io/${{ secrets.GCP_PROJECT_ID }}/payexecution_snapshot:${GITHUB_SHA::7} ./
-    #  run: docker build -t gcr.io/${{ secrets.GCP_PROJECT_ID }}/payexecution_snapshot:${GITHUB_SHA::7} .
+      run: docker build -t gcr.io/${{ secrets.GCP_PROJECT_ID }}/payexecution_snapshot:${GITHUB_SHA::7} .
 
   docker_push:
     runs-on: ubuntu-18.04
