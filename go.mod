@@ -1,4 +1,4 @@
-module github.com/ryo29wx/Purchase_Request_Consumer
+module github.com/ryo29wx/payexecution
 
 go 1.16
 
