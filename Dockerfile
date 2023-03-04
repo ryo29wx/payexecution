@@ -1,6 +1,6 @@
 FROM golang:1.15.2 as builder
 WORKDIR /
-COPY src .
+COPY ./* .
 RUN go get github.com/yabamuro/gocelery && \
     go get github.com/go-sql-driver/mysql && \
     go get github.com/go-redis/redis/v8 && \
