@@ -4,9 +4,6 @@ on:
   push:
     branches: [ "main" ]
 
-env:
-  # GCP_PROJECT: ${{ secrets.GCP_PROJECT_ID }}
-
 jobs:
   build:
     runs-on: ubuntu-latest
