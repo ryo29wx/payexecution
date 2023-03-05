@@ -1,14 +1,11 @@
-name: payexecution
+name: snapshot
 
 on:
   push:
     branches: [ "main" ]
-  pull_request:
-    branches: [ "main" ]
 
 env:
-  GCP_PROJECT: ${{ secrets.GCP_PROJECT_ID }}
-  # GCP_REGION: ${{ secrets.GCP_REGION }}
+  # GCP_PROJECT: ${{ secrets.GCP_PROJECT_ID }}
 
 jobs:
   build:
@@ -27,7 +24,8 @@ jobs:
     - name: Test
       run: go test -v .
 
-  docker_build:
+  snapshot_build:
+    needs: [build]
     runs-on: ubuntu-18.04
     steps:
     - name: Checkout the repository
@@ -49,7 +47,8 @@ jobs:
     - name: Build a docker image
       run: docker build -t gcr.io/${{ secrets.GCP_PROJECT_ID }}/payexecution_snapshot:${GITHUB_SHA::7} .
 
-  docker_push:
+  snapshot_push:
+    needs: [docker_build]
     runs-on: ubuntu-18.04
     steps:
     - name: Checkout the repository
