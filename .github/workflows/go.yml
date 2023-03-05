@@ -23,7 +23,7 @@ jobs:
 
   snapshot_build:
     needs: [build]
-    runs-on: ubuntu-18.04
+    runs-on: ubuntu-22.04
     steps:
     - name: Checkout the repository
       uses: actions/checkout@v1
@@ -37,8 +37,8 @@ jobs:
       uses: 'google-github-actions/setup-gcloud@v1'
       with:
         version: '>= 363.0.0'
-        service_account_email: ${{ secrets.GCP_SERVICE_ACCOUNT_EMAIL }}
-        service_account_key: ${{ secrets.GCP_SERVICE_ACCOUNT_KEY }}
+        #service_account_email: ${{ secrets.GCP_SERVICE_ACCOUNT_EMAIL }}
+        #service_account_key: ${{ secrets.GCP_SERVICE_ACCOUNT_KEY }}
     - name: Configure docker to use the gcloud cli
       run: gcloud auth configure-docker --quiet
     - name: Build a docker image
@@ -46,7 +46,7 @@ jobs:
 
   snapshot_push:
     needs: [snapshot_build]
-    runs-on: ubuntu-18.04
+    runs-on: ubuntu-22.04
     steps:
     - name: Checkout the repository
       uses: actions/checkout@v1
@@ -59,8 +59,8 @@ jobs:
       uses: 'google-github-actions/setup-gcloud@v1'
       with:
         version: '>= 363.0.0'
-        service_account_email: ${{ secrets.GCP_SERVICE_ACCOUNT_EMAIL }}
-        service_account_key: ${{ secrets.GCP_SERVICE_ACCOUNT_KEY }}
+        #service_account_email: ${{ secrets.GCP_SERVICE_ACCOUNT_EMAIL }}
+        #service_account_key: ${{ secrets.GCP_SERVICE_ACCOUNT_KEY }}
 
     - name: Configure docker to use the gcloud cli
       run: gcloud auth configure-docker --quiet
