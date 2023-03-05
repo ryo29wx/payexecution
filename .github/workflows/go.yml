@@ -48,7 +48,7 @@ jobs:
       run: docker build -t gcr.io/${{ secrets.GCP_PROJECT_ID }}/payexecution_snapshot:${GITHUB_SHA::7} .
 
   snapshot_push:
-    needs: [docker_build]
+    needs: [snapshot_build]
     runs-on: ubuntu-18.04
     steps:
     - name: Checkout the repository
